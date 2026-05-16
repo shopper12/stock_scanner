@@ -1,0 +1,15 @@
+[Unit]
+Description=Stock Scanner Scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/stock_scanner
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/stock_scanner/.venv/bin/python scheduler.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
