@@ -1,0 +1,5 @@
+code,name,market_value_krw,asset_bucket
+360750,TIGER 미국S&P500,3000000,risky
+379810,KODEX 미국나스닥100TR,2000000,risky
+148070,KOSEF 국고채10년,3000000,safe
+329750,TIGER 미국달러단기채권액티브,1000000,safe
