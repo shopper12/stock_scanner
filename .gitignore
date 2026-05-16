@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+stock_scanner.db
+.streamlit/
+.DS_Store
