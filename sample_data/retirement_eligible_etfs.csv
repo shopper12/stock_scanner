@@ -1,0 +1,6 @@
+code,name,underlying_index,expense_ratio,asset_bucket,retirement_eligible,is_leveraged,is_inverse
+360750,TIGER 미국S&P500,미국 S&P500,0.07,risky,true,false,false
+379810,KODEX 미국나스닥100TR,미국 Nasdaq100,0.05,risky,true,false,false
+458730,TIGER 미국배당다우존스,미국 배당,0.03,risky,true,false,false
+148070,KOSEF 국고채10년,국내 국고채,0.15,safe,true,false,false
+329750,TIGER 미국달러단기채권액티브,달러 단기채,0.30,safe,true,false,false
