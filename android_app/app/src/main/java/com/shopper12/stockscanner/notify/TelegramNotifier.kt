@@ -13,9 +13,20 @@ class TelegramNotifier {
 
     fun send(result: ScanResult): Boolean {
         val token = BuildConfig.TELEGRAM_BOT_TOKEN
-        val chatId = BuildConfig.TELEGRAM_CHAT_ID
-        if (token.isBlank() || chatId.isBlank()) return false
+        val chatIds = BuildConfig.TELEGRAM_CHAT_IDS
+            .split(',', ';', '\n')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .ifEmpty { listOf(BuildConfig.TELEGRAM_CHAT_ID.trim()).filter { it.isNotBlank() } }
+
+        if (token.isBlank() || chatIds.isEmpty()) return false
+
         val text = buildMessage(result)
+        return chatIds.map { chatId -> sendMessage(token, chatId, text) }.all { it }
+    }
+
+    private fun sendMessage(token: String, chatId: String, text: String): Boolean {
         val json = JSONObject()
             .put("chat_id", chatId)
             .put("text", text)
