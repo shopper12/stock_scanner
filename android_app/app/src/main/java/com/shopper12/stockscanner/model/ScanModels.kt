@@ -28,7 +28,18 @@ data class UsEtfSignal(
     val buyKrw: Long,
     val condition: String,
     val risk: String,
-    val chartPoints: List<ChartPoint> = emptyList()
+    val chartPoints: List<ChartPoint> = emptyList(),
+    val currentPrice: Double? = null,
+    val ma20: Double? = null,
+    val ma60: Double? = null,
+    val ma200: Double? = null,
+    val momentum12mPct: Double? = null,
+    val drawdown52wPct: Double? = null,
+    val entryPlan: String = "",
+    val stopPlan: String = "",
+    val targetPlan: String = "",
+    val strategyReview: String = "",
+    val dataSource: String = "mock"
 )
 
 data class RetirementSignal(
@@ -48,7 +59,10 @@ data class RetirementAssetSignal(
     val score: Double,
     val suggestedWeightPct: Double,
     val risk: String,
-    val chartPoints: List<ChartPoint> = emptyList()
+    val chartPoints: List<ChartPoint> = emptyList(),
+    val currentPrice: Double? = null,
+    val strategyReview: String = "",
+    val dataSource: String = "mock"
 )
 
 data class KrShortSignal(
@@ -59,7 +73,11 @@ data class KrShortSignal(
     val stopLoss: Long,
     val target1: Long,
     val reason: String,
-    val chartPoints: List<ChartPoint> = emptyList()
+    val chartPoints: List<ChartPoint> = emptyList(),
+    val currentPrice: Long? = null,
+    val target2: Long? = null,
+    val strategyReview: String = "",
+    val dataSource: String = "mock"
 )
 
 data class StrategyInfo(
@@ -96,7 +114,10 @@ data class ManualAnalysis(
     val stop: String,
     val target: String,
     val reasons: List<String>,
-    val chartPoints: List<ChartPoint>
+    val chartPoints: List<ChartPoint>,
+    val currentPrice: String = "N/A",
+    val strategyReview: String = "",
+    val dataSource: String = "mock"
 )
 
 data class ChartPoint(
