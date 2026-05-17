@@ -45,12 +45,21 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun StockScannerScreen(activity: ComponentActivity) {
     val engine = remember { ScannerEngine() }
-    var result by remember { mutableStateOf<ScanResult?>(engine.runScan()) }
-    var status by remember { mutableStateOf("대기") }
+    var result by remember { mutableStateOf<ScanResult?>(null) }
+    var status by remember { mutableStateOf("초기화 중") }
     var selectedTab by remember { mutableIntStateOf(0) }
     var manualSymbol by remember { mutableStateOf("VOO") }
-    var manualAnalysis by remember { mutableStateOf<ManualAnalysis?>(engine.analyzeManualSymbol("VOO")) }
+    var manualAnalysis by remember { mutableStateOf<ManualAnalysis?>(null) }
     val tabs = listOf("요약", "전략", "직접판단", "미국 ETF", "환율", "퇴직/IRP", "한국 단기", "검증")
+
+    LaunchedEffect(Unit) {
+        status = "초기 스캔 중"
+        val scan = withContext(Dispatchers.IO) { engine.runScan() }
+        val analysis = withContext(Dispatchers.IO) { engine.analyzeManualSymbol(manualSymbol) }
+        result = scan
+        manualAnalysis = analysis
+        status = "초기 스캔 완료"
+    }
 
     MaterialTheme {
         Scaffold(topBar = { TopBar() }) { padding ->
@@ -64,15 +73,22 @@ fun StockScannerScreen(activity: ComponentActivity) {
                     onScan = {
                         activity.lifecycleScope.launch {
                             status = "스캔 중"
-                            result = withContext(Dispatchers.Default) { engine.runScan() }
-                            manualAnalysis = withContext(Dispatchers.Default) { engine.analyzeManualSymbol(manualSymbol) }
+                            val scan = withContext(Dispatchers.IO) { engine.runScan() }
+                            val analysis = withContext(Dispatchers.IO) { engine.analyzeManualSymbol(manualSymbol) }
+                            result = scan
+                            manualAnalysis = analysis
                             status = "스캔 완료"
                         }
                     },
                     onTelegram = {
                         activity.lifecycleScope.launch {
-                            val scan = result ?: engine.runScan()
-                            val sent = withContext(Dispatchers.IO) { TelegramNotifier().send(scan) }
+                            status = "텔레그램 전송 준비"
+                            var scan = result
+                            if (scan == null) {
+                                scan = withContext(Dispatchers.IO) { engine.runScan() }
+                                result = scan
+                            }
+                            val sent = withContext(Dispatchers.IO) { TelegramNotifier().send(scan!!) }
                             status = if (sent) "텔레그램 전송 완료" else "텔레그램 전송 실패"
                         }
                     },
@@ -104,7 +120,13 @@ fun StockScannerScreen(activity: ComponentActivity) {
                             symbol = manualSymbol,
                             analysis = manualAnalysis,
                             onSymbolChange = { manualSymbol = it },
-                            onAnalyze = { manualAnalysis = engine.analyzeManualSymbol(manualSymbol) }
+                            onAnalyze = {
+                                activity.lifecycleScope.launch {
+                                    status = "직접 판단 중"
+                                    manualAnalysis = withContext(Dispatchers.IO) { engine.analyzeManualSymbol(manualSymbol) }
+                                    status = "직접 판단 완료"
+                                }
+                            }
                         )
                         3 -> UsEtfTab(scan.usEtfs)
                         4 -> FxTab(scan.fx)
@@ -191,7 +213,7 @@ fun SummaryTab(scan: ScanResult) {
                 title = "현재 단계",
                 lines = listOf(
                     "앱 화면·전략 설명·직접 종목 판단·검증 로그·예상 차트가 들어간 2차 MVP다.",
-                    "데이터는 아직 mock 기반이다. 다음 단계에서 실시간 가격/수급/API를 연결해야 한다.",
+                    "미국 ETF와 USD/KRW는 실데이터 1차 연결, 한국 주식/국내 ETF는 아직 mock 기반이다.",
                     "전략은 매시간 검증하지만 파라미터 수정은 주 1회 또는 임계값 충족 시로 제한한다."
                 )
             )
@@ -516,7 +538,7 @@ fun ProjectionChart(points: List<ChartPoint>) {
     if (points.isEmpty()) return
     val maxValue = points.maxOf { it.value }.coerceAtLeast(1.0)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("예상 경로", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Text("예상/가격 경로", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         points.forEach { point ->
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(point.label, modifier = Modifier.width(42.dp), style = MaterialTheme.typography.bodySmall)
@@ -569,7 +591,7 @@ fun SectionTitle(text: String) {
 @Composable
 fun EmptyState() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("스캔 결과 없음")
+        Text("스캔 준비 중")
     }
 }
 
