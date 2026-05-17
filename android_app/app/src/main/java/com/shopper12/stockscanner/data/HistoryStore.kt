@@ -5,6 +5,9 @@ import com.shopper12.stockscanner.model.ManualAnalysis
 import com.shopper12.stockscanner.model.ScanResult
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class HistoryStore(context: Context) {
     private val prefs = context.getSharedPreferences("stock_scanner_history", Context.MODE_PRIVATE)
@@ -100,10 +103,7 @@ class HistoryStore(context: Context) {
         prefs.edit().putString(KEY_ITEMS, arr.toString()).apply()
     }
 
-    private fun nowText(): String {
-        val scan = ScannerEngine().runScan()
-        return scan.createdAt
-    }
+    private fun nowText(): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.KOREA).format(Date())
 
     companion object {
         private const val KEY_ITEMS = "items"
