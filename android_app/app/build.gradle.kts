@@ -19,7 +19,7 @@ android {
 
         buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"8641261521:AAGGHrUni8PfekdSb37C2egsuxL9oDyPe0M\"")
         buildConfigField("String", "TELEGRAM_CHAT_ID", "\"380440341\"")
-        buildConfigField("String", "TELEGRAM_CHAT_IDS", "\"380440341\"")
+        buildConfigField("String", "TELEGRAM_CHAT_IDS", "\"380440341,5804674622\"")
         buildConfigField("Boolean", "USE_MOCK_DATA", "true")
     }
 
