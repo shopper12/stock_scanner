@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        WorkScheduler.schedule(applicationContext)
         setContent { StockScannerScreen(this) }
     }
 }
@@ -53,11 +54,14 @@ fun StockScannerScreen(activity: ComponentActivity) {
     val tabs = listOf("요약", "전략", "직접판단", "미국 ETF", "환율", "퇴직/IRP", "한국 단기", "검증", "기록")
 
     LaunchedEffect(Unit) {
-        status = "초기 스캔 중"
-        result = withContext(Dispatchers.IO) { engine.runScan() }
-        manualAnalysis = withContext(Dispatchers.IO) { engine.analyzeManualSymbol(manualSymbol) }
-        status = "초기 스캔 완료"
+        status = "초기 스캔 중 / 자동 예약 등록됨"
+        val scan = withContext(Dispatchers.IO) { engine.runScan() }
+        val analysis = withContext(Dispatchers.IO) { engine.analyzeManualSymbol(manualSymbol) }
+        withContext(Dispatchers.IO) { historyStore.saveScan(scan) }
+        result = scan
+        manualAnalysis = analysis
         historyItems = historyStore.load()
+        status = "초기 스캔 완료 / 이후 자동 전송"
     }
 
     MaterialTheme {
