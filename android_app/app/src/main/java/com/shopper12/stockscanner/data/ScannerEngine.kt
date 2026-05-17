@@ -308,6 +308,12 @@ class ScannerEngine {
         return "1차 ${formatLong(t1)} / 2차 ${formatLong(t2)}"
     }
 
+    private fun buildKrStrategyReview(score: Double, series: PriceSeries): String {
+        val entry = roundKrPrice(max(series.latest * 1.01, series.ma20)).toLong()
+        val stop = roundKrPrice(min(series.latest * 0.96, series.ma20 * 0.97)).toLong()
+        return buildKrStrategyReview(score, series, entry, stop)
+    }
+
     private fun buildKrStrategyReview(score: Double, series: PriceSeries, entry: Long, stop: Long): String = when {
         series.latest < series.ma200 -> "보류: MA200 아래라 중기 추세 약함"
         score >= 80 && series.latest > series.ma20 -> "매수 검토: ${formatLong(entry)} 돌파 확인. 실패 시 ${formatLong(stop)} 손절"
