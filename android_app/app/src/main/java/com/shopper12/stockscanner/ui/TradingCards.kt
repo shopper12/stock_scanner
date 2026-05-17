@@ -30,9 +30,9 @@ fun UsEtfReviewCard(etf: UsEtfSignal) {
                 modifier = Modifier.fillMaxWidth()
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                SmallBox("MA20", etf.ma20?.toString() ?: "-")
-                SmallBox("MA60", etf.ma60?.toString() ?: "-")
-                SmallBox("MA200", etf.ma200?.toString() ?: "-")
+                SmallBox("MA20", etf.ma20?.toString() ?: "-", Modifier.weight(1f))
+                SmallBox("MA60", etf.ma60?.toString() ?: "-", Modifier.weight(1f))
+                SmallBox("MA200", etf.ma200?.toString() ?: "-", Modifier.weight(1f))
             }
             ProjectionBars(etf.chartPoints)
             Text("전략검토: ${etf.strategyReview}")
@@ -144,8 +144,8 @@ fun MetricBox(title: String, value: String, label: String, modifier: Modifier = 
 }
 
 @Composable
-private fun SmallBox(label: String, value: String) {
-    Card(Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) {
+private fun SmallBox(label: String, value: String, modifier: Modifier = Modifier) {
+    Card(modifier, shape = RoundedCornerShape(12.dp)) {
         Column(Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(label, style = MaterialTheme.typography.labelSmall)
             Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
