@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import com.shopper12.stockscanner.data.HistoryStore
 import com.shopper12.stockscanner.data.ScannerEngine
 import com.shopper12.stockscanner.model.*
 import com.shopper12.stockscanner.notify.TelegramNotifier
@@ -42,18 +43,21 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun StockScannerScreen(activity: ComponentActivity) {
     val engine = remember { ScannerEngine() }
+    val historyStore = remember { HistoryStore(activity.applicationContext) }
     var result by remember { mutableStateOf<ScanResult?>(null) }
+    var historyItems by remember { mutableStateOf(historyStore.load()) }
     var status by remember { mutableStateOf("초기화 중") }
     var selectedTab by remember { mutableIntStateOf(0) }
     var manualSymbol by remember { mutableStateOf("VOO") }
     var manualAnalysis by remember { mutableStateOf<ManualAnalysis?>(null) }
-    val tabs = listOf("요약", "전략", "직접판단", "미국 ETF", "환율", "퇴직/IRP", "한국 단기", "검증")
+    val tabs = listOf("요약", "전략", "직접판단", "미국 ETF", "환율", "퇴직/IRP", "한국 단기", "검증", "기록")
 
     LaunchedEffect(Unit) {
         status = "초기 스캔 중"
         result = withContext(Dispatchers.IO) { engine.runScan() }
         manualAnalysis = withContext(Dispatchers.IO) { engine.analyzeManualSymbol(manualSymbol) }
         status = "초기 스캔 완료"
+        historyItems = historyStore.load()
     }
 
     MaterialTheme {
@@ -64,9 +68,13 @@ fun StockScannerScreen(activity: ComponentActivity) {
                     onScan = {
                         activity.lifecycleScope.launch {
                             status = "스캔 중"
-                            result = withContext(Dispatchers.IO) { engine.runScan() }
-                            manualAnalysis = withContext(Dispatchers.IO) { engine.analyzeManualSymbol(manualSymbol) }
-                            status = "스캔 완료"
+                            val scan = withContext(Dispatchers.IO) { engine.runScan() }
+                            val analysis = withContext(Dispatchers.IO) { engine.analyzeManualSymbol(manualSymbol) }
+                            withContext(Dispatchers.IO) { historyStore.saveScan(scan) }
+                            result = scan
+                            manualAnalysis = analysis
+                            historyItems = historyStore.load()
+                            status = "스캔 완료 / 기록 저장"
                         }
                     },
                     onTelegram = {
@@ -112,8 +120,11 @@ fun StockScannerScreen(activity: ComponentActivity) {
                             onAnalyze = {
                                 activity.lifecycleScope.launch {
                                     status = "직접 판단 중"
-                                    manualAnalysis = withContext(Dispatchers.IO) { engine.analyzeManualSymbol(manualSymbol) }
-                                    status = "직접 판단 완료"
+                                    val analysis = withContext(Dispatchers.IO) { engine.analyzeManualSymbol(manualSymbol) }
+                                    withContext(Dispatchers.IO) { historyStore.saveManual(analysis) }
+                                    manualAnalysis = analysis
+                                    historyItems = historyStore.load()
+                                    status = "직접 판단 완료 / 기록 저장"
                                 }
                             }
                         )
@@ -122,6 +133,14 @@ fun StockScannerScreen(activity: ComponentActivity) {
                         5 -> RetirementTab(scan.retirement, scan.retirementAssets)
                         6 -> KrShortTab(scan.krShortStocks)
                         7 -> ValidationTab(scan.validationLogs, scan.revisionPolicy)
+                        8 -> HistoryScreen(
+                            items = historyItems,
+                            onClear = {
+                                historyStore.clear()
+                                historyItems = historyStore.load()
+                                status = "기록 삭제 완료"
+                            }
+                        )
                     }
                 } ?: LoadingState()
             }
@@ -254,7 +273,7 @@ fun RetirementTab(retirement: RetirementSignal, assets: List<RetirementAssetSign
 @Composable
 fun KrShortTab(items: List<KrShortSignal>) {
     LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { HeaderBox("한국 단기 일반계좌", "현재가·진입·손절·목표 검토", "현재 한국 데이터는 mock/fallback. 실데이터 연결 필요") }
+        item { HeaderBox("한국 단기 일반계좌", "현재가·진입·손절·목표 검토", "현재 한국 데이터는 Yahoo .KS/.KQ 우선, 실패 시 fallback") }
         items(items) { KrShortReviewCard(it) }
     }
 }
