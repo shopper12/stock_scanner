@@ -42,16 +42,6 @@ class ScannerEngine {
         val fallbackReview: String
     )
 
-    private data class KrShortSeed(
-        val code: String,
-        val name: String,
-        val fallbackScore: Double,
-        val fallbackEntry: Long,
-        val fallbackStop: Long,
-        val fallbackTarget: Long,
-        val reason: String
-    )
-
     fun runScan(): ScanResult {
         val fx = analyzeFx()
         val usEtfs = scanUsEtfs(fx)
@@ -119,12 +109,7 @@ class ScannerEngine {
                 "MA20 ${live.ma20}, MA60 ${live.ma60}, MA200 ${live.ma200}"
             )
         } else {
-            listOf(
-                "모멘텀 점수 ${score.round1()} 기준",
-                "거래량/추세/환율/자산군 리스크를 분리 판단",
-                "실데이터 수신 실패: mock 기반 예비 판단",
-                "실전 적용 전 현재가·거래대금·뉴스 확인 필요"
-            )
+            listOf("실데이터 수신 실패: mock 기반 예비 판단", "실전 적용 전 현재가·거래대금·뉴스 확인 필요")
         }
         return ManualAnalysis(
             symbol = symbol,
@@ -145,23 +130,14 @@ class ScannerEngine {
     private fun analyzeFx(): FxSignal {
         val live = fetchYahooSeries("KRW=X", "6mo")
         if (live != null) {
-            val usdKrw = live.latest
-            val ma60 = live.ma60
-            val gap = usdKrw / ma60 - 1.0
+            val gap = live.latest / live.ma60 - 1.0
             return when {
-                gap <= -0.015 -> FxSignal(usdKrw, ma60, "선환전 검토", 600_000, "실데이터: USD/KRW가 60일 평균보다 낮음")
-                gap >= 0.02 -> FxSignal(usdKrw, ma60, "최소환전 / 선환전 금지", 200_000, "실데이터: USD/KRW가 60일 평균보다 높음")
-                else -> FxSignal(usdKrw, ma60, "3~4회 분할환전", 350_000, "실데이터: 환율이 60일 평균권")
+                gap <= -0.015 -> FxSignal(live.latest, live.ma60, "선환전 검토", 600_000, "실데이터: USD/KRW가 60일 평균보다 낮음")
+                gap >= 0.02 -> FxSignal(live.latest, live.ma60, "최소환전 / 선환전 금지", 200_000, "실데이터: USD/KRW가 60일 평균보다 높음")
+                else -> FxSignal(live.latest, live.ma60, "3~4회 분할환전", 350_000, "실데이터: 환율이 60일 평균권")
             }
         }
-        val usdKrw = 1364.2
-        val ma60 = 1378.5
-        val gap = usdKrw / ma60 - 1.0
-        return when {
-            gap <= -0.015 -> FxSignal(usdKrw, ma60, "선환전 검토", 600_000, "fallback: USD/KRW가 60일 평균보다 낮음")
-            gap >= 0.02 -> FxSignal(usdKrw, ma60, "최소환전 / 선환전 금지", 200_000, "fallback: USD/KRW가 60일 평균보다 높음")
-            else -> FxSignal(usdKrw, ma60, "3~4회 분할환전", 350_000, "fallback: 환율이 60일 평균권")
-        }
+        return FxSignal(1364.2, 1378.5, "3~4회 분할환전", 350_000, "fallback: 환율이 60일 평균권")
     }
 
     private fun scanUsEtfs(fx: FxSignal): List<UsEtfSignal> {
@@ -178,16 +154,13 @@ class ScannerEngine {
             val live = fetchYahooSeries(ticker, "1y")
             val score = (live?.let { scoreFromSeries(it) } ?: fallbackScore).round1()
             val buyPct = if (fx.action.contains("최소환전")) 40.0 else if (score >= 80) 60.0 else 40.0
-            val condition = live?.let {
-                "현재 ${it.latest} / MA20 ${it.ma20} / MA60 ${it.ma60} / MA200 ${it.ma200} / DD52W ${(it.drawdown52w * 100.0).round1()}%"
-            } ?: if (buyPct >= 60) "월 기본매수 + 눌림 추가매수" else "월 기본매수 40%"
             UsEtfSignal(
                 ticker = ticker,
                 name = name,
                 score = score,
                 buyPct = buyPct,
                 buyKrw = (1_000_000 * buyPct / 100.0).toLong(),
-                condition = condition,
+                condition = live?.let { "현재 ${it.latest} / MA20 ${it.ma20} / MA60 ${it.ma60} / MA200 ${it.ma200}" } ?: "월 기본매수 40%",
                 risk = when (ticker) {
                     "QQQ", "SMH" -> "기술주/금리 민감"
                     "TLT" -> "금리 상승 시 가격 하락"
@@ -242,34 +215,63 @@ class ScannerEngine {
     }
 
     private fun scanKrShortStocks(): List<KrShortSignal> {
-        val seeds = listOf(
-            KrShortSeed("042700", "한미반도체", 82.4, 128_000, 123_000, 137_000, "거래량 증가 + 전고점 근접"),
-            KrShortSeed("267260", "HD현대일렉트릭", 79.1, 410_000, 392_000, 444_000, "추세 유지 + 수급 후보"),
-            KrShortSeed("010120", "LS ELECTRIC", 75.8, 212_000, 203_000, 229_000, "전력기기 테마 + 눌림 후 재돌파 후보")
+        val candidates = KrShortUniverse.candidates()
+            .map { buildKrShortSignal(it) }
+            .filter { it.currentPrice != null || it.score >= 65.0 }
+            .sortedWith(compareByDescending<KrShortSignal> { it.score }.thenBy { it.name })
+        return selectDiversifiedKrShorts(candidates, 5)
+    }
+
+    private fun buildKrShortSignal(seed: KrShortUniverse.Seed): KrShortSignal {
+        val live = fetchKrSeries(seed.code)
+        val score = (live?.let { shortTradeScore(it) } ?: seed.fallbackScore).round1()
+        val current = live?.latest?.let { roundKrPrice(it).toLong() }
+        val entry = live?.let { roundKrPrice(max(it.latest * 1.01, it.ma20)).toLong() } ?: seed.fallbackEntry
+        val stop = live?.let { roundKrPrice(min(it.latest * 0.96, it.ma20 * 0.97)).toLong() } ?: seed.fallbackStop
+        val target1 = live?.let { roundKrPrice(it.latest * 1.08).toLong() } ?: seed.fallbackTarget
+        val target2 = live?.let { roundKrPrice(it.latest * 1.16).toLong() } ?: roundKrPrice(seed.fallbackTarget * 1.06).toLong()
+        return KrShortSignal(
+            code = seed.code,
+            name = seed.name,
+            score = score,
+            entry = entry,
+            stopLoss = stop,
+            target1 = target1,
+            reason = "${seed.sector}: ${seed.reason}",
+            chartPoints = live?.chartPoints ?: projectedChart(score),
+            currentPrice = current,
+            target2 = target2,
+            strategyReview = live?.let { buildKrStrategyReview(score, it, entry, stop) } ?: "mock: 현재가 확인 전 실전 판단 금지",
+            dataSource = if (live != null) "Yahoo chart ${live.symbol}" else "mock/fallback"
         )
-        return seeds.map { seed ->
-            val live = fetchKrSeries(seed.code)
-            val score = (live?.let { scoreFromSeries(it) } ?: seed.fallbackScore).round1()
-            val current = live?.latest?.let { roundKrPrice(it).toLong() }
-            val entry = live?.let { roundKrPrice(max(it.latest * 1.01, it.ma20)).toLong() } ?: seed.fallbackEntry
-            val stop = live?.let { roundKrPrice(min(it.latest * 0.96, it.ma20 * 0.97)).toLong() } ?: seed.fallbackStop
-            val target1 = live?.let { roundKrPrice(it.latest * 1.08).toLong() } ?: seed.fallbackTarget
-            val target2 = live?.let { roundKrPrice(it.latest * 1.16).toLong() } ?: roundKrPrice(seed.fallbackTarget * 1.06).toLong()
-            KrShortSignal(
-                code = seed.code,
-                name = seed.name,
-                score = score,
-                entry = entry,
-                stopLoss = stop,
-                target1 = target1,
-                reason = seed.reason,
-                chartPoints = live?.chartPoints ?: projectedChart(score),
-                currentPrice = current,
-                target2 = target2,
-                strategyReview = live?.let { buildKrStrategyReview(score, it, entry, stop) } ?: "mock: 현재가 확인 전 실전 판단 금지",
-                dataSource = if (live != null) "Yahoo chart ${live.symbol}" else "mock/fallback"
-            )
-        }.sortedByDescending { it.score }
+    }
+
+    private fun selectDiversifiedKrShorts(candidates: List<KrShortSignal>, maxItems: Int): List<KrShortSignal> {
+        val selected = mutableListOf<KrShortSignal>()
+        val usedSectors = mutableSetOf<String>()
+        candidates.forEach { signal ->
+            val sector = signal.reason.substringBefore(':')
+            if (sector !in usedSectors && selected.size < maxItems) {
+                selected += signal
+                usedSectors += sector
+            }
+        }
+        if (selected.size < maxItems) {
+            candidates.forEach { signal ->
+                if (selected.none { it.code == signal.code } && selected.size < maxItems) selected += signal
+            }
+        }
+        return selected
+    }
+
+    private fun shortTradeScore(series: PriceSeries): Double {
+        var score = scoreFromSeries(series)
+        if (series.latest > series.ma20) score += 5.0
+        if (series.ma20 > series.ma60) score += 5.0
+        if (series.latest > series.high52w * 0.97) score += 4.0
+        if (series.drawdown52w in -0.18..-0.05 && series.latest > series.ma60) score += 4.0
+        if (series.latest < series.ma200) score -= 12.0
+        return score.coerceIn(0.0, 100.0)
     }
 
     private fun analyzeRetirement(): RetirementSignal {
@@ -366,13 +368,13 @@ class ScannerEngine {
     private fun strategyInfos(): List<StrategyInfo> = listOf(
         StrategyInfo("US_LONG_ETF", "미국 장기 ETF 분할매수", "미국 상장 ETF: 지수, 성장, 배당, 반도체, 채권, 금, 원자재", "1년~10년", listOf("현재가·MA20·MA60·MA200 실시간/준실시간 검토", "월 기본매수 40%", "20/60/200일선 조정 시 추가매수", "환율 고평가 시 환전 분할 우선"), listOf("개별주 단타 금지", "고환율·고평가 동시 구간 추격 금지", "ETF별 비중 상한 관리"), "미국 ETF/환율 실데이터 연결"),
         StrategyInfo("KR_RETIREMENT_MULTI_ASSET", "퇴직연금/IRP 멀티에셋 ETF", "국내상장 ETF: 주식, 채권, 금, 원유, 원자재, 달러, 레버리지/인버스 포함 표시", "3개월~10년", listOf("위험자산 70% 한도 점검", "국내 ETF 현재가·이평선 검토", "레버리지/인버스 고위험 태그"), listOf("레버리지·인버스 장기보유 경고", "선물형 원자재 롤오버 리스크 표시"), "국내 ETF 실데이터 1차 연결"),
-        StrategyInfo("KR_SHORT_STOCK", "한국 단기 일반계좌", "거래대금 상위 개별주", "당일~10일", listOf("현재가·진입가·손절가·목표가 동시 검토", "MA20/MA60/MA200 기반 추세 점검", "실패 조건 명확할 때만 후보"), listOf("퇴직연금과 분리", "손절가 이탈 시 재해석 금지"), "한국 후보 실데이터 1차 연결")
+        StrategyInfo("KR_SHORT_STOCK", "한국 단기 일반계좌", "반도체·전력기기·조선·방산·로봇·바이오·자동차·인터넷·금융 후보군", "당일~10일", listOf("고정 3종목 폐지", "후보군 15개 이상 스캔", "섹터당 1개 우선 선발", "현재가·진입가·손절가·목표가 동시 검토"), listOf("동일 섹터 반복 제한", "퇴직연금과 분리", "손절가 이탈 시 재해석 금지"), "한국 단기 후보군 확장 및 섹터 분산 적용")
     )
 
     private fun validationLogs(now: String): List<StrategyValidationLog> = listOf(
         StrategyValidationLog(now, "US_LONG_ETF", "정상", "미국 ETF 현재가·이평선·전략검토 연결", "다음: 거래량·AUM·비용 반영"),
         StrategyValidationLog(now, "KR_RETIREMENT_MULTI_ASSET", "개선", "국내 ETF 코드를 Yahoo .KS/.KQ로 조회", "다음: KRX 공식 데이터 교차검증"),
-        StrategyValidationLog(now, "KR_SHORT_STOCK", "개선", "한국 후보 현재가·진입·손절·목표 산출", "다음: 거래대금/수급 연결"),
+        StrategyValidationLog(now, "KR_SHORT_STOCK", "수정", "기존 3개 고정 후보를 후보군/섹터분산 방식으로 변경", "다음: 거래대금/수급/뉴스 API 연결"),
         StrategyValidationLog(now, "REVISION_POLICY", "정상", "매시간 검증하되 전략 수정은 주 1회 또는 임계값 충족 시", "과잉 최적화 방지")
     )
 
