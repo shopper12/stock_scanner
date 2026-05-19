@@ -5,8 +5,18 @@ import requests
 from config import settings
 
 
+def _telegram_chat_ids() -> list[str]:
+    raw = getattr(settings, 'telegram_chat_ids', None) or settings.telegram_chat_id or ''
+    ids: list[str] = []
+    for part in str(raw).replace(';', ',').replace('\n', ',').split(','):
+        value = part.strip()
+        if value and value not in ids:
+            ids.append(value)
+    return ids
+
+
 def telegram_enabled() -> bool:
-    return bool(settings.telegram_bot_token and settings.telegram_chat_id)
+    return bool(settings.telegram_bot_token and _telegram_chat_ids())
 
 
 def send_telegram_message(text: str) -> bool:
@@ -14,19 +24,22 @@ def send_telegram_message(text: str) -> bool:
         print('[notifier] Telegram 설정 없음. 메시지만 출력합니다.')
         print(text)
         return False
+
     url = f'https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage'
-    resp = requests.post(url, json={
-        'chat_id': str(settings.telegram_chat_id).strip(),
-        'text': text,
-        'parse_mode': 'HTML',
-        'disable_web_page_preview': True,
-    }, timeout=15)
-    if not resp.ok:
-        print('[notifier] Telegram 전송 실패')
-        print(f'HTTP {resp.status_code}: {resp.text}')
-        print('점검: TELEGRAM_CHAT_ID가 실제 chat.id 숫자인지, 봇에게 /start를 보냈는지 확인하세요.')
-        return False
-    return True
+    ok = True
+    for chat_id in _telegram_chat_ids():
+        resp = requests.post(url, json={
+            'chat_id': chat_id,
+            'text': text,
+            'parse_mode': 'HTML',
+            'disable_web_page_preview': True,
+        }, timeout=15)
+        if not resp.ok:
+            ok = False
+            print(f'[notifier] Telegram 전송 실패: chat_id={chat_id}')
+            print(f'HTTP {resp.status_code}: {resp.text}')
+            print('점검: chat.id 숫자인지, 해당 사용자가 봇에게 /start를 보냈는지 확인하세요.')
+    return ok
 
 
 def build_mobile_summary(payload: dict) -> str:
