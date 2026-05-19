@@ -15,6 +15,16 @@ def _bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
 
 
+def _chat_ids() -> str | None:
+    multi = os.getenv('TELEGRAM_CHAT_IDS')
+    if multi and multi.strip():
+        return multi.strip()
+    single = os.getenv('TELEGRAM_CHAT_ID')
+    if single and single.strip():
+        return single.strip()
+    return None
+
+
 @dataclass(frozen=True)
 class Settings:
     use_mock_data: bool = _bool(os.getenv('USE_MOCK_DATA'), True)
@@ -22,6 +32,7 @@ class Settings:
     timezone: str = os.getenv('TIMEZONE', 'Asia/Seoul')
     telegram_bot_token: str | None = os.getenv('TELEGRAM_BOT_TOKEN') or None
     telegram_chat_id: str | None = os.getenv('TELEGRAM_CHAT_ID') or None
+    telegram_chat_ids: str | None = _chat_ids()
     base_currency: str = os.getenv('BASE_CURRENCY', 'KRW')
     account_equity_krw: float = float(os.getenv('ACCOUNT_EQUITY_KRW', '10000000'))
     risk_per_trade_pct: float = float(os.getenv('RISK_PER_TRADE_PCT', '1.0'))
