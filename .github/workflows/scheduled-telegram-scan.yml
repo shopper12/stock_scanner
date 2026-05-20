@@ -1,0 +1,62 @@
+name: Scheduled Telegram Stock Scan
+
+on:
+  workflow_dispatch:
+  schedule:
+    # KST 08:50, 12:00, 15:20, 21:30 on weekdays
+    - cron: '50 23 * * 0-4'
+    - cron: '0 3 * * 1-5'
+    - cron: '20 6 * * 1-5'
+    - cron: '30 12 * * 1-5'
+
+jobs:
+  telegram-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      USE_MOCK_DATA: 'false'
+      TIMEZONE: Asia/Seoul
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+      ACCOUNT_EQUITY_KRW: '10000000'
+      RETIREMENT_TOTAL_KRW: '10000000'
+      US_MONTHLY_BUDGET_KRW: '1000000'
+      RISK_PER_TRADE_PCT: '1.0'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate Telegram settings
+        run: |
+          python - <<'PY'
+          import os
+          if not os.getenv('TELEGRAM_BOT_TOKEN'):
+              raise SystemExit('Missing TELEGRAM_BOT_TOKEN secret')
+          if not os.getenv('TELEGRAM_CHAT_IDS'):
+              raise SystemExit('Missing TELEGRAM_CHAT_IDS secret')
+          print('Telegram settings detected')
+          PY
+
+      - name: Run stock scanner and notify
+        run: python scan_once.py --notify
+
+      - name: Upload scan database
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-scanner-db
+          path: stock_scanner.db
+          if-no-files-found: ignore
