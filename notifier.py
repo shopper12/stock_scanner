@@ -47,25 +47,61 @@ def build_mobile_summary(payload: dict) -> str:
     us_top = payload['us_long_etfs'][:3]
     kr_short = payload['kr_short_stocks'][:3]
     retirement = payload['retirement_risk_report']
+    mode = payload.get('mode', 'unknown')
+
     lines = []
     lines.append('📌 <b>Stock Scanner 요약</b>')
-    lines.append(f"기준시각: {html.escape(str(payload['created_at_kst']))}")
+    lines.append(f"기준시각: {html.escape(str(payload['created_at_kst']))} / 데이터: {html.escape(str(mode))}")
+    if mode == 'mock':
+        lines.append('⚠️ mock 모드: 실전 매매 판단 금지')
     lines.append('')
+
     lines.append('💵 <b>환율</b>')
     lines.append(f"USD/KRW {fx['usdkrw']} / 60일평균 {fx['ma60']} / 판단: {html.escape(str(fx['action']))}")
     lines.append(f"권장 환전: {fx['suggested_conversion_ratio_pct']}% / {fx['suggested_conversion_krw']:,}원")
     lines.append('')
+
     lines.append('🇺🇸 <b>미국 장기 ETF 상위</b>')
     for x in us_top:
-        lines.append(f"{html.escape(str(x['ticker']))} 점수 {x['score']} / 이번달 매수 {x['this_month_buy_pct']}% / {html.escape(str(x['additional_buy_condition']))}")
+        lines.append(
+            f"{html.escape(str(x['ticker']))} 점수 {x['score']} / "
+            f"이번달 매수 {x['this_month_buy_pct']}% / "
+            f"가격 {x.get('current_price', 'N/A')} / "
+            f"{html.escape(str(x['additional_buy_condition']))}"
+        )
     lines.append('')
+
     lines.append('🏦 <b>퇴직연금 한도</b>')
     lines.append(f"위험자산 {retirement['risky_pct']}% / 상태: {html.escape(str(retirement['status']))} / 추가여력 {retirement['risky_buy_room_krw']:,}원")
     lines.append('')
+
     lines.append('🇰🇷 <b>한국 단기 일반계좌 후보</b>')
     if kr_short:
         for x in kr_short:
-            lines.append(f"{html.escape(str(x['name']))}({html.escape(str(x['code']))}) 점수 {x['score']} / 진입 {x['entry']:,} / 손절 {x['stop_loss']:,} / 목표 {x['target1']:,}")
+            name = html.escape(str(x.get('name', '')))
+            code = html.escape(str(x.get('code', '')))
+            sector = html.escape(str(x.get('sector', '기타')))
+            setup = html.escape(str(x.get('strategy_type', '')))
+            reason = html.escape(str(x.get('reason', '')))
+            current = _fmt_int(x.get('current_price'))
+            entry = _fmt_int(x.get('entry'))
+            stop = _fmt_int(x.get('stop_loss'))
+            target1 = _fmt_int(x.get('target1'))
+            target2 = _fmt_int(x.get('target2'))
+            position = _fmt_int(x.get('position_size_krw'))
+            risk_pct = x.get('risk_pct', 'N/A')
+            lines.append(f"<b>{name}({code})</b> [{sector}/{setup}] 점수 {x.get('score')}")
+            lines.append(f"현재 {current} / 진입 {entry} / 손절 {stop} / 목표 {target1}→{target2}")
+            lines.append(f"위험 {risk_pct}% / 권장노출 {position}원 / {reason}")
     else:
         lines.append('조건 통과 종목 없음')
     return '\n'.join(lines)
+
+
+def _fmt_int(value) -> str:
+    try:
+        if value is None:
+            return 'N/A'
+        return f"{int(round(float(value))):,}"
+    except Exception:
+        return str(value)
