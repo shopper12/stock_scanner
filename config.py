@@ -15,6 +15,20 @@ def _bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
 
 
+def _float_env(name: str, default: str) -> float:
+    try:
+        return float(os.getenv(name, default))
+    except ValueError:
+        return float(default)
+
+
+def _int_env(name: str, default: str) -> int:
+    try:
+        return int(float(os.getenv(name, default)))
+    except ValueError:
+        return int(float(default))
+
+
 def _chat_ids() -> str | None:
     multi = os.getenv('TELEGRAM_CHAT_IDS')
     if multi and multi.strip():
@@ -27,19 +41,25 @@ def _chat_ids() -> str | None:
 
 @dataclass(frozen=True)
 class Settings:
-    use_mock_data: bool = _bool(os.getenv('USE_MOCK_DATA'), True)
+    # Live data is the default. Set USE_MOCK_DATA=1 only for UI/build tests.
+    use_mock_data: bool = _bool(os.getenv('USE_MOCK_DATA'), False)
     database_url: str = os.getenv('DATABASE_URL', f"sqlite:///{BASE_DIR / 'stock_scanner.db'}")
     timezone: str = os.getenv('TIMEZONE', 'Asia/Seoul')
     telegram_bot_token: str | None = os.getenv('TELEGRAM_BOT_TOKEN') or None
     telegram_chat_id: str | None = os.getenv('TELEGRAM_CHAT_ID') or None
     telegram_chat_ids: str | None = _chat_ids()
     base_currency: str = os.getenv('BASE_CURRENCY', 'KRW')
-    account_equity_krw: float = float(os.getenv('ACCOUNT_EQUITY_KRW', '10000000'))
-    risk_per_trade_pct: float = float(os.getenv('RISK_PER_TRADE_PCT', '1.0'))
-    retirement_total_krw: float = float(os.getenv('RETIREMENT_TOTAL_KRW', '10000000'))
-    retirement_risky_asset_cap_pct: float = float(os.getenv('RETIREMENT_RISKY_ASSET_CAP_PCT', '70'))
-    us_monthly_budget_krw: float = float(os.getenv('US_MONTHLY_BUDGET_KRW', '1000000'))
-    min_kr_trade_value_krw: float = float(os.getenv('MIN_KR_TRADE_VALUE_KRW', '5000000000'))
+    account_equity_krw: float = _float_env('ACCOUNT_EQUITY_KRW', '10000000')
+    risk_per_trade_pct: float = _float_env('RISK_PER_TRADE_PCT', '1.0')
+    retirement_total_krw: float = _float_env('RETIREMENT_TOTAL_KRW', '10000000')
+    retirement_risky_asset_cap_pct: float = _float_env('RETIREMENT_RISKY_ASSET_CAP_PCT', '70')
+    us_monthly_budget_krw: float = _float_env('US_MONTHLY_BUDGET_KRW', '1000000')
+    min_kr_trade_value_krw: float = _float_env('MIN_KR_TRADE_VALUE_KRW', '5000000000')
+    min_kr_price: float = _float_env('MIN_KR_PRICE', '1000')
+    kr_universe_top_n: int = _int_env('KR_UNIVERSE_TOP_N', '80')
+    max_kr_entry_gap_from_ma20_pct: float = _float_env('MAX_KR_ENTRY_GAP_FROM_MA20_PCT', '12')
+    max_kr_trade_risk_pct: float = _float_env('MAX_KR_TRADE_RISK_PCT', '12')
+    min_kr_trade_risk_pct: float = _float_env('MIN_KR_TRADE_RISK_PCT', '1.5')
 
 
 settings = Settings()
