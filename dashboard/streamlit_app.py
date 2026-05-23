@@ -25,7 +25,10 @@ if payload is None:
     st.info('저장된 스캔 결과가 없습니다. 수동 스캔 실행을 누르세요.')
     st.stop()
 
-st.caption(f"기준시각: {payload['created_at_kst']} / mode={payload.get('mode')}")
+mode = payload.get('mode', 'unknown')
+st.caption(f"기준시각: {payload['created_at_kst']} / mode={mode}")
+if mode == 'mock':
+    st.warning('현재 mock 데이터 모드입니다. 실전 매매 판단에 사용하지 마세요.')
 
 fx = payload['fx']
 st.subheader('1. 달러 환전 신호')
@@ -39,7 +42,7 @@ st.write(f"권장 환전금액: {fx['suggested_conversion_krw']:,}원 / 사유: 
 
 st.subheader('2. 미국 장기 ETF 분할매수')
 us_df = pd.DataFrame(payload['us_long_etfs'])
-st.dataframe(us_df, use_container_width=True)
+st.dataframe(_order_cols(us_df, ['ticker', 'name', 'asset_class', 'current_price', 'score', 'this_month_buy_pct', 'this_month_buy_krw', 'drawdown_52w_pct', 'momentum_12m_pct', 'additional_buy_condition', 'risk_summary']), use_container_width=True)
 
 st.subheader('3. 한국 퇴직연금 ETF')
 risk = payload['retirement_risk_report']
@@ -49,11 +52,37 @@ ret_cols[1].metric('안전자산 비중', f"{risk['safe_pct']}%")
 ret_cols[2].metric('위험자산 추가여력', f"{risk['risky_buy_room_krw']:,}원")
 ret_cols[3].metric('상태', risk['status'])
 ret_df = pd.DataFrame(payload['kr_retirement_etfs'])
-st.dataframe(ret_df, use_container_width=True)
+st.dataframe(_order_cols(ret_df, ['code', 'name', 'asset_bucket', 'current_price', 'score', 'current_weight_pct', 'recommended_weight_pct', 'additional_buy_capacity_krw', 'rebalance_needed', 'momentum_1y_pct', 'mdd_1y_pct']), use_container_width=True)
 
 st.subheader('4. 한국 단기 일반계좌 후보')
 kr_short_df = pd.DataFrame(payload['kr_short_stocks'])
-st.dataframe(kr_short_df, use_container_width=True)
+if kr_short_df.empty:
+    st.info('조건 통과 종목 없음')
+else:
+    top = kr_short_df.iloc[0]
+    m = st.columns(5)
+    m[0].metric('1순위', f"{top.get('name')}({top.get('code')})")
+    m[1].metric('점수', top.get('score'))
+    m[2].metric('셋업', top.get('strategy_type', 'N/A'))
+    m[3].metric('위험폭', f"{top.get('risk_pct', 'N/A')}%")
+    m[4].metric('권장노출', _fmt_krw(top.get('position_size_krw')))
+    show_cols = ['code', 'name', 'sector', 'strategy_type', 'current_price', 'score', 'entry', 'stop_loss', 'target1', 'target2', 'risk_pct', 'position_size_krw', 'volume_ratio_20d', 'trade_value_ratio_20d', 'trade_value_krw', 'momentum_20d_pct', 'reason', 'failure_condition']
+    st.dataframe(_order_cols(kr_short_df, show_cols), use_container_width=True)
 
 st.subheader('5. DCA 백테스트')
 st.json(payload['dca_backtest'])
+
+
+def _order_cols(df: pd.DataFrame, preferred: list[str]) -> pd.DataFrame:
+    if df.empty:
+        return df
+    ordered = [c for c in preferred if c in df.columns]
+    rest = [c for c in df.columns if c not in ordered]
+    return df[ordered + rest]
+
+
+def _fmt_krw(value) -> str:
+    try:
+        return f"{int(round(float(value))):,}원"
+    except Exception:
+        return 'N/A'
