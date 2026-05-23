@@ -2,6 +2,11 @@ name: Telegram Stock Scanner
 
 on:
   workflow_dispatch:
+    inputs:
+      use_mock_data:
+        description: 'Use mock data for build/UI testing only'
+        required: false
+        default: 'false'
   schedule:
     # KRX regular session window: 09:00-15:45 KST = 00:00-06:45 UTC, weekdays
     - cron: '*/15 0-6 * * 1-5'
@@ -33,6 +38,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          USE_MOCK_DATA: ${{ vars.USE_MOCK_DATA || 'true' }}
+          USE_MOCK_DATA: ${{ github.event.inputs.use_mock_data || vars.USE_MOCK_DATA || 'false' }}
           TIMEZONE: Asia/Seoul
+          KR_UNIVERSE_TOP_N: ${{ vars.KR_UNIVERSE_TOP_N || '80' }}
+          MIN_KR_TRADE_VALUE_KRW: ${{ vars.MIN_KR_TRADE_VALUE_KRW || '5000000000' }}
+          RISK_PER_TRADE_PCT: ${{ vars.RISK_PER_TRADE_PCT || '1.0' }}
         run: python scan_once.py --notify
