@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from analysis.gemini_report import review_report
 from data.market_data import get_kr_stock_history, get_kr_stock_universe
 from strategies.kr_short_rules import KrShortRules, load_kr_short_rules, rules_with_summary, save_kr_short_rules
 from strategies.kr_short_stock import _entry, _failure_condition, _prepare_history, _reason, _score, _select_diversified, _setup, _stop
@@ -35,7 +36,7 @@ def run_kr_short_backtest(rules: KrShortRules | None = None, max_symbols: int | 
     return _summarise(trades, rules)
 
 
-def evolve_kr_short_rules(write: bool = False, max_symbols: int | None = None) -> dict:
+def evolve_kr_short_rules(write: bool = False, max_symbols: int | None = None, ai_review: bool = True) -> dict:
     base = load_kr_short_rules()
     base_summary = run_kr_short_backtest(base, max_symbols=max_symbols)
     candidates = _candidate_rules(base)
@@ -61,6 +62,11 @@ def evolve_kr_short_rules(write: bool = False, max_symbols: int | None = None) -
         'accepted': accepted,
         'write_requested': write,
     }
+    if ai_review:
+        try:
+            result['ai_review'] = review_report(result)
+        except Exception as exc:
+            result['ai_review'] = {'enabled': True, 'used': False, 'error': str(exc)}
 
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     pd.Series(result, dtype='object').to_json(REPORT_PATH, force_ascii=False, indent=2)
@@ -152,6 +158,7 @@ def _simulate_trade(entry: float, stop: float, future: pd.DataFrame, hold_days: 
     target1 = entry + risk * 2.0
     target2 = entry + risk * 3.2
     entered = False
+    last_close = entry
     for _, bar in future.head(hold_days).iterrows():
         low = float(bar['low'])
         high = float(bar['high'])
@@ -160,6 +167,7 @@ def _simulate_trade(entry: float, stop: float, future: pd.DataFrame, hold_days: 
             if high >= entry:
                 entered = True
             else:
+                last_close = close
                 continue
         if low <= stop:
             return stop / entry - 1.0, 'stop'
