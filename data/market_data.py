@@ -14,7 +14,7 @@ def get_us_etf_universe() -> pd.DataFrame:
 
 def get_us_history(ticker: str) -> pd.DataFrame:
     if settings.use_mock_data:
-        return mock_data.us_history(ticker)
+        .us_history(ticker)
     try:
         import yfinance as yf
 
@@ -98,8 +98,10 @@ def get_kr_stock_history(code: str) -> pd.DataFrame:
         return mock_data.kr_stock_history(code)
     try:
         return _get_kr_ohlcv_by_date(code, lookback_days=260)
-    except Exception:
+    except Exception as exc:
+    if settings.allow_data_fallback:
         return mock_data.kr_stock_history(code)
+    raise RuntimeError(f'KR stock history fetch failed for {code}') from exc
 
 
 def get_retirement_positions() -> pd.DataFrame:
