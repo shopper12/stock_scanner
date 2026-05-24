@@ -93,7 +93,8 @@ else:
     m[2].metric('셋업', top.get('strategy_type', 'N/A'))
     m[3].metric('위험폭', f"{top.get('risk_pct', 'N/A')}%")
     m[4].metric('권장노출', _fmt_krw(top.get('position_size_krw')))
-    show_cols = ['code', 'name', 'sector', 'strategy_type', 'current_price', 'score', 'entry', 'stop_loss', 'target1', 'target2', 'risk_pct', 'position_size_krw', 'volume_ratio_20d', 'trade_value_ratio_20d', 'trade_value_krw', 'momentum_20d_pct', 'reason', 'failure_condition']
+    st.caption('가격 기준: current_price는 price_basis/price_timestamp에 표시된 데이터 기준입니다. 실시간 호가가 아니라면 진입 전 증권사 현재가로 재확인해야 합니다.')
+    show_cols = ['code', 'name', 'sector', 'strategy_type', 'current_price', 'price_basis', 'price_timestamp', 'history_last_date', 'data_source', 'score', 'entry', 'stop_loss', 'target1', 'target2', 'risk_pct', 'position_size_krw', 'volume_ratio_20d', 'trade_value_ratio_20d', 'trade_value_krw', 'momentum_20d_pct', 'reason', 'failure_condition']
     st.dataframe(_order_cols(kr_short_df, show_cols), use_container_width=True)
 
 st.subheader('5. 한국 단기 조건 검증 리포트')
