@@ -83,6 +83,9 @@ def build_mobile_summary(payload: dict) -> str:
             sector = html.escape(str(x.get('sector', '기타')))
             setup = html.escape(str(x.get('strategy_type', '')))
             reason = html.escape(str(x.get('reason', '')))
+            basis = html.escape(str(x.get('price_basis', 'unknown')))
+            source = html.escape(str(x.get('quote_source') or x.get('data_source', 'unknown')))
+            ts = html.escape(str(x.get('price_timestamp', 'unknown')))
             current = _fmt_int(x.get('current_price'))
             entry = _fmt_int(x.get('entry'))
             stop = _fmt_int(x.get('stop_loss'))
@@ -91,7 +94,7 @@ def build_mobile_summary(payload: dict) -> str:
             position = _fmt_int(x.get('position_size_krw'))
             risk_pct = x.get('risk_pct', 'N/A')
             lines.append(f"<b>{name}({code})</b> [{sector}/{setup}] 점수 {x.get('score')}")
-            lines.append(f"현재 {current} / 진입 {entry} / 손절 {stop} / 목표 {target1}→{target2}")
+            lines.append(f"현재 {current}({basis}, {source}, {ts}) / 진입 {entry} / 손절 {stop} / 목표 {target1}→{target2}")
             lines.append(f"위험 {risk_pct}% / 권장노출 {position}원 / {reason}")
     else:
         lines.append('조건 통과 종목 없음')
