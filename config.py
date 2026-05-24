@@ -42,6 +42,7 @@ def _chat_ids() -> str | None:
 @dataclass(frozen=True)
 class Settings:
     # Live data is the default. Set USE_MOCK_DATA=1 only for UI/build tests.
+    allow_data_fallback: bool = _bool(os.getenv('ALLOW_DATA_FALLBACK'), False)
     use_mock_data: bool = _bool(os.getenv('USE_MOCK_DATA'), False)
     database_url: str = os.getenv('DATABASE_URL', f"sqlite:///{BASE_DIR / 'stock_scanner.db'}")
     timezone: str = os.getenv('TIMEZONE', 'Asia/Seoul')
