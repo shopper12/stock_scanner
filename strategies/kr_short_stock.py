@@ -10,10 +10,11 @@ from strategies.metrics import atr, momentum, score_clip
 
 
 COLUMNS = [
-    'code', 'name', 'sector', 'current_price', 'score', 'entry', 'stop_loss', 'target1', 'target2',
-    'risk_pct', 'position_size_krw', 'holding_period', 'strategy_type', 'volume_ratio_20d',
-    'trade_value_ratio_20d', 'trade_value_krw', 'momentum_5d_pct', 'momentum_20d_pct',
-    'momentum_60d_pct', 'drawdown_60d_pct', 'reason', 'failure_condition', 'data_source'
+    'code', 'name', 'sector', 'current_price', 'price_basis', 'price_timestamp', 'history_last_date',
+    'score', 'entry', 'stop_loss', 'target1', 'target2', 'risk_pct', 'position_size_krw',
+    'holding_period', 'strategy_type', 'volume_ratio_20d', 'trade_value_ratio_20d',
+    'trade_value_krw', 'momentum_5d_pct', 'momentum_20d_pct', 'momentum_60d_pct',
+    'drawdown_60d_pct', 'reason', 'failure_condition', 'data_source'
 ]
 
 
@@ -72,12 +73,16 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             position_size = min(settings.account_equity_krw * 0.25, max(0, shares * entry))
             target1 = entry + risk_per_share * 2.0
             target2 = entry + risk_per_share * 3.2
+            history_last_date = _format_date(latest.get('date'))
 
             records.append({
                 'code': str(row['code']).zfill(6),
                 'name': row['name'],
                 'sector': row.get('sector', '기타'),
                 'current_price': round(price),
+                'price_basis': 'last_daily_close',
+                'price_timestamp': history_last_date,
+                'history_last_date': history_last_date,
                 'score': round(score, 1),
                 'entry': round(entry),
                 'stop_loss': round(stop),
@@ -96,7 +101,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
                 'drawdown_60d_pct': round(drawdown60 * 100, 2),
                 'reason': _reason(setup, volume_ratio, value_ratio, ret20, drawdown60, gap_ma20, rules.max_gap_ma20_pct),
                 'failure_condition': _failure_condition(setup),
-                'data_source': 'live_or_fallback',
+                'data_source': 'yahoo_ks_kq_daily',
             })
         except Exception:
             continue
@@ -185,6 +190,14 @@ def _select_diversified(ranked: pd.DataFrame, max_items: int) -> pd.DataFrame:
 
 def _ratio(num: float, den: float) -> float:
     return 0.0 if den <= 0 else num / den
+
+
+def _format_date(value) -> str:
+    if value is None:
+        return 'unknown'
+    if hasattr(value, 'date'):
+        return str(value.date())
+    return str(value)
 
 
 def _reason(setup: str, volume_ratio: float, value_ratio: float, ret20: float, drawdown60: float, gap_ma20: float, max_gap_ma20_pct: float) -> str:
