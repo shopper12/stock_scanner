@@ -32,7 +32,7 @@ def review_report(summary: dict[str, Any]) -> dict[str, Any]:
 def _call_model(prompt: str) -> str:
     response = requests.post(
         f"{BASE_URL}/{settings.gemini_model}:generateContent",
-        params={'key': settings.gemini_api_key},
+        headers={'x-goog-api-key': settings.gemini_api_key},
         json={
             'contents': [{'role': 'user', 'parts': [{'text': prompt}]}],
             'generationConfig': {'temperature': 0.2, 'responseMimeType': 'application/json'},
