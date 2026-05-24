@@ -12,6 +12,22 @@ import streamlit as st
 from database.db import latest_payload
 from scan_once import run_full_scan
 
+
+def _order_cols(df: pd.DataFrame, preferred: list[str]) -> pd.DataFrame:
+    if df.empty:
+        return df
+    ordered = [c for c in preferred if c in df.columns]
+    rest = [c for c in df.columns if c not in ordered]
+    return df[ordered + rest]
+
+
+def _fmt_krw(value) -> str:
+    try:
+        return f"{int(round(float(value))):,}원"
+    except Exception:
+        return 'N/A'
+
+
 st.set_page_config(page_title='Stock Scanner', layout='wide')
 st.title('Stock Scanner - Mobile Dashboard')
 
@@ -71,18 +87,3 @@ else:
 
 st.subheader('5. DCA 백테스트')
 st.json(payload['dca_backtest'])
-
-
-def _order_cols(df: pd.DataFrame, preferred: list[str]) -> pd.DataFrame:
-    if df.empty:
-        return df
-    ordered = [c for c in preferred if c in df.columns]
-    rest = [c for c in df.columns if c not in ordered]
-    return df[ordered + rest]
-
-
-def _fmt_krw(value) -> str:
-    try:
-        return f"{int(round(float(value))):,}원"
-    except Exception:
-        return 'N/A'
