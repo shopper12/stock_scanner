@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -26,6 +27,16 @@ def _fmt_krw(value) -> str:
         return f"{int(round(float(value))):,}원"
     except Exception:
         return 'N/A'
+
+
+def _latest_rule_report() -> dict | None:
+    path = ROOT_DIR / 'reports' / 'kr_short_evolution_latest.json'
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return None
 
 
 st.set_page_config(page_title='Stock Scanner', layout='wide')
@@ -85,5 +96,32 @@ else:
     show_cols = ['code', 'name', 'sector', 'strategy_type', 'current_price', 'score', 'entry', 'stop_loss', 'target1', 'target2', 'risk_pct', 'position_size_krw', 'volume_ratio_20d', 'trade_value_ratio_20d', 'trade_value_krw', 'momentum_20d_pct', 'reason', 'failure_condition']
     st.dataframe(_order_cols(kr_short_df, show_cols), use_container_width=True)
 
-st.subheader('5. DCA 백테스트')
+st.subheader('5. 한국 단기 조건 검증 리포트')
+report = _latest_rule_report()
+if report is None:
+    st.info('아직 생성된 조건 검증 리포트가 없습니다. tools/kr_short_check.py를 실행하세요.')
+else:
+    cols = st.columns(5)
+    cols[0].metric('생성시각', str(report.get('created_at_kst', 'N/A')))
+    cols[1].metric('개선폭', report.get('improvement', 'N/A'))
+    cols[2].metric('적용 가능', str(report.get('accepted', 'N/A')))
+    cols[3].metric('기준 fitness', report.get('base_fitness', 'N/A'))
+    cols[4].metric('최고 fitness', report.get('best_fitness', 'N/A'))
+
+    base_summary = report.get('base_summary', {})
+    best_summary = report.get('best_summary', {})
+    summary_df = pd.DataFrame([
+        {'case': 'base', **{k: base_summary.get(k) for k in ['trades', 'avg_return_pct', 'win_rate', 'surge_precision', 'profit_factor', 'stop_rate', 'target_rate']}},
+        {'case': 'best', **{k: best_summary.get(k) for k in ['trades', 'avg_return_pct', 'win_rate', 'surge_precision', 'profit_factor', 'stop_rate', 'target_rate']}},
+    ])
+    st.dataframe(summary_df, use_container_width=True)
+
+    ai = report.get('ai_review')
+    if ai:
+        with st.expander('AI 리포트 리뷰'):
+            st.json(ai)
+    with st.expander('전체 검증 리포트 JSON'):
+        st.json(report)
+
+st.subheader('6. DCA 백테스트')
 st.json(payload['dca_backtest'])
