@@ -20,11 +20,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -48,6 +50,7 @@ private fun StockScannerScreen() {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var snapshot by remember { mutableStateOf<StockSnapshot?>(null) }
+    val scope = rememberCoroutineScope()
 
     suspend fun refresh() {
         loading = true
@@ -66,7 +69,9 @@ private fun StockScannerScreen() {
     ) {
         Text("Stock Scanner", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { /* refresh is launched below */ }, enabled = false) { Text(if (loading) "Loading" else "Auto") }
+            Button(onClick = { scope.launch { refresh() } }, enabled = !loading) {
+                Text(if (loading) "Loading" else "Refresh")
+            }
         }
         if (error != null) {
             InfoCard("API error: $error")
