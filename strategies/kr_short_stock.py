@@ -5,16 +5,17 @@ import math
 import pandas as pd
 from config import settings
 from data.market_data import get_kr_stock_history, get_kr_stock_universe
+from data.realtime_price import try_kr_realtime_quote
 from strategies.kr_short_rules import load_kr_short_rules
 from strategies.metrics import atr, momentum, score_clip
 
 
 COLUMNS = [
     'code', 'name', 'sector', 'current_price', 'price_basis', 'price_timestamp', 'history_last_date',
-    'score', 'entry', 'stop_loss', 'target1', 'target2', 'risk_pct', 'position_size_krw',
-    'holding_period', 'strategy_type', 'volume_ratio_20d', 'trade_value_ratio_20d',
-    'trade_value_krw', 'momentum_5d_pct', 'momentum_20d_pct', 'momentum_60d_pct',
-    'drawdown_60d_pct', 'reason', 'failure_condition', 'data_source'
+    'quote_source', 'quote_ok', 'quote_error', 'score', 'entry', 'stop_loss', 'target1', 'target2',
+    'risk_pct', 'position_size_krw', 'holding_period', 'strategy_type', 'volume_ratio_20d',
+    'trade_value_ratio_20d', 'trade_value_krw', 'momentum_5d_pct', 'momentum_20d_pct',
+    'momentum_60d_pct', 'drawdown_60d_pct', 'reason', 'failure_condition', 'data_source'
 ]
 
 
@@ -25,13 +26,17 @@ def scan_kr_short_stocks() -> pd.DataFrame:
 
     for row in universe.to_dict('records'):
         try:
-            hist = _prepare_history(get_kr_stock_history(row['code']).copy())
+            code = str(row['code']).zfill(6)
+            hist = _prepare_history(get_kr_stock_history(code).copy())
             if len(hist) < 65:
                 continue
 
             latest = hist.iloc[-1]
             prev = hist.iloc[-2]
-            price = float(latest['close'])
+            daily_close = float(latest['close'])
+            quote = try_kr_realtime_quote(code)
+            quote_ok = bool(quote.get('ok'))
+            price = float(quote['price']) if quote_ok and quote.get('price') else daily_close
             ma20 = float(latest['ma20'])
             ma60 = float(latest['ma60'])
             ma120 = float(latest['ma120'])
@@ -39,7 +44,9 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             if min(price, ma20, ma60, atr14) <= 0:
                 continue
 
-            trade_value = float(latest.get('trade_value', price * latest['volume']))
+            trade_value = float(latest.get('trade_value', daily_close * latest['volume']))
+            if quote_ok and quote.get('trade_value'):
+                trade_value = float(quote['trade_value'])
             volume_ratio = _ratio(float(latest['volume']), float(latest['volume_ma20']))
             value_ratio = _ratio(trade_value, float(latest['trade_value_ma20']))
             high20 = float(hist['high'].iloc[-21:-1].max())
@@ -47,9 +54,9 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             low10 = float(hist['low'].tail(10).min())
             drawdown60 = price / high60 - 1.0 if high60 else 0.0
             gap_ma20 = price / ma20 - 1.0
-            ret5 = momentum(hist['close'], 5)
-            ret20 = momentum(hist['close'], 20)
-            ret60 = momentum(hist['close'], 60)
+            ret5 = price / float(hist['close'].iloc[-6]) - 1.0 if len(hist) > 6 else momentum(hist['close'], 5)
+            ret20 = price / float(hist['close'].iloc[-21]) - 1.0 if len(hist) > 21 else momentum(hist['close'], 20)
+            ret60 = price / float(hist['close'].iloc[-61]) - 1.0 if len(hist) > 61 else momentum(hist['close'], 60)
 
             setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, high20, high60, drawdown60)
             score = _score(price, ma20, ma60, ma120, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, drawdown60, gap_ma20, setup, rules.max_gap_ma20_pct)
@@ -76,13 +83,16 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             history_last_date = _format_date(latest.get('date'))
 
             records.append({
-                'code': str(row['code']).zfill(6),
+                'code': code,
                 'name': row['name'],
                 'sector': row.get('sector', '기타'),
                 'current_price': round(price),
-                'price_basis': 'last_daily_close',
-                'price_timestamp': history_last_date,
+                'price_basis': 'realtime_quote' if quote_ok else 'last_daily_close',
+                'price_timestamp': quote.get('timestamp_kst') if quote_ok else history_last_date,
                 'history_last_date': history_last_date,
+                'quote_source': quote.get('source'),
+                'quote_ok': quote_ok,
+                'quote_error': quote.get('error'),
                 'score': round(score, 1),
                 'entry': round(entry),
                 'stop_loss': round(stop),
@@ -101,7 +111,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
                 'drawdown_60d_pct': round(drawdown60 * 100, 2),
                 'reason': _reason(setup, volume_ratio, value_ratio, ret20, drawdown60, gap_ma20, rules.max_gap_ma20_pct),
                 'failure_condition': _failure_condition(setup),
-                'data_source': 'yahoo_ks_kq_daily',
+                'data_source': 'yahoo_daily_plus_quote' if quote_ok else 'yahoo_ks_kq_daily',
             })
         except Exception:
             continue
