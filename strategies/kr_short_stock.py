@@ -5,6 +5,7 @@ import math
 import pandas as pd
 from config import settings
 from data.market_data import get_kr_stock_history, get_kr_stock_universe
+from strategies.kr_short_rules import load_kr_short_rules
 from strategies.metrics import atr, momentum, score_clip
 
 
@@ -17,6 +18,7 @@ COLUMNS = [
 
 
 def scan_kr_short_stocks() -> pd.DataFrame:
+    rules = load_kr_short_rules()
     universe = get_kr_stock_universe()
     records: list[dict] = []
 
@@ -49,19 +51,19 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             ret60 = momentum(hist['close'], 60)
 
             setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, high20, high60, drawdown60)
-            score = _score(price, ma20, ma60, ma120, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, drawdown60, gap_ma20, setup)
-            if score < 62:
+            score = _score(price, ma20, ma60, ma120, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, drawdown60, gap_ma20, setup, rules.max_gap_ma20_pct)
+            if score < rules.score_threshold:
                 continue
 
             stop = _stop(price, ma20, ma60, low10, atr14)
             if stop >= price:
                 stop = price * 0.96
             risk_pct = (price - stop) / price * 100.0
-            if risk_pct < settings.min_kr_trade_risk_pct or risk_pct > settings.max_kr_trade_risk_pct:
+            if risk_pct < rules.min_risk_pct or risk_pct > rules.max_risk_pct:
                 continue
 
             entry = _entry(price, high20, ma20, setup)
-            if entry / price - 1.0 > 0.035:
+            if entry / price - 1.0 > rules.max_entry_gap_pct / 100.0:
                 continue
 
             risk_per_share = max(entry - stop, price * 0.01)
@@ -92,7 +94,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
                 'momentum_20d_pct': round(ret20 * 100, 2),
                 'momentum_60d_pct': round(ret60 * 100, 2),
                 'drawdown_60d_pct': round(drawdown60 * 100, 2),
-                'reason': _reason(setup, volume_ratio, value_ratio, ret20, drawdown60, gap_ma20),
+                'reason': _reason(setup, volume_ratio, value_ratio, ret20, drawdown60, gap_ma20, rules.max_gap_ma20_pct),
                 'failure_condition': _failure_condition(setup),
                 'data_source': 'live_or_fallback',
             })
@@ -127,7 +129,7 @@ def _setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60:
     return 'watch'
 
 
-def _score(price: float, ma20: float, ma60: float, ma120: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, drawdown60: float, gap_ma20: float, setup: str) -> float:
+def _score(price: float, ma20: float, ma60: float, ma120: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, drawdown60: float, gap_ma20: float, setup: str, max_gap_ma20_pct: float) -> float:
     liquidity = score_clip((trade_value / settings.min_kr_trade_value_krw) * 12, 0, 18)
     volume = score_clip((volume_ratio - 1.0) * 18, 0, 24) + score_clip((value_ratio - 1.0) * 8, 0, 10)
     trend = (8 if price > ma20 else 0) + (8 if price > ma60 else 0) + (7 if ma20 > ma60 else 0) + (5 if ma60 > ma120 else 0)
@@ -135,7 +137,7 @@ def _score(price: float, ma20: float, ma60: float, ma120: float, high20: float, 
     strength = score_clip(ret5 * 160, -8, 12) + score_clip(ret20 * 100, -10, 18) + score_clip(ret60 * 55, -8, 14)
     setup_bonus = {'breakout': 12, 'pullback_reversal': 10, 'trend_continuation': 7, 'watch': 0}[setup]
     penalty = 0.0
-    if gap_ma20 > settings.max_kr_entry_gap_from_ma20_pct / 100:
+    if gap_ma20 > max_gap_ma20_pct / 100:
         penalty += 18
     if price < ma60:
         penalty += 14
@@ -185,7 +187,7 @@ def _ratio(num: float, den: float) -> float:
     return 0.0 if den <= 0 else num / den
 
 
-def _reason(setup: str, volume_ratio: float, value_ratio: float, ret20: float, drawdown60: float, gap_ma20: float) -> str:
+def _reason(setup: str, volume_ratio: float, value_ratio: float, ret20: float, drawdown60: float, gap_ma20: float, max_gap_ma20_pct: float) -> str:
     flags = []
     if setup == 'breakout':
         flags.append('20/60일 고점권 돌파')
@@ -201,7 +203,7 @@ def _reason(setup: str, volume_ratio: float, value_ratio: float, ret20: float, d
         flags.append('20일 상대강도 양호')
     if -0.18 <= drawdown60 <= -0.035:
         flags.append('고점 대비 건전한 조정')
-    if gap_ma20 > settings.max_kr_entry_gap_from_ma20_pct / 100:
+    if gap_ma20 > max_gap_ma20_pct / 100:
         flags.append('단기 과열 주의')
     return ' + '.join(flags) if flags else '점수 기준 통과'
 
