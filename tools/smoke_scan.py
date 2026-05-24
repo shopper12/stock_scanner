@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -8,7 +7,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from backtest.kr_short_evolution import run_kr_short_backtest
 from scan_once import run_full_scan
+from strategies.kr_short_rules import load_kr_short_rules
 
 
 def main() -> int:
@@ -25,11 +26,18 @@ def main() -> int:
     if not isinstance(payload['kr_short_stocks'], list):
         raise AssertionError('kr_short_stocks must be a list')
 
+    rules = load_kr_short_rules()
+    backtest = run_kr_short_backtest(rules=rules, max_symbols=3)
+    if 'trades' not in backtest or 'avg_return_pct' not in backtest:
+        raise AssertionError('backtest summary missing required keys')
+
     print('SMOKE_SCAN_OK')
     print(f"mode={payload.get('mode')}")
     print(f"us_long_etfs={len(payload['us_long_etfs'])}")
     print(f"kr_retirement_etfs={len(payload['kr_retirement_etfs'])}")
     print(f"kr_short_stocks={len(payload['kr_short_stocks'])}")
+    print(f"backtest_trades={backtest.get('trades')}")
+    print(f"backtest_avg_return_pct={backtest.get('avg_return_pct')}")
     if payload['kr_short_stocks']:
         top = payload['kr_short_stocks'][0]
         print(f"top_kr_short={top.get('name')}({top.get('code')}) score={top.get('score')} setup={top.get('strategy_type')}")
