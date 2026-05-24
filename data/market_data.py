@@ -59,11 +59,11 @@ def get_kr_etf_history(code: str) -> pd.DataFrame:
 def get_kr_stock_universe() -> pd.DataFrame:
     base = _ensure_sector(mock_data.kr_stock_universe()).copy()
     today = datetime.now(ZoneInfo(settings.timezone)).strftime('%Y%m%d')
-    base['market'] = base.get('market', 'WATCH')
+    base['market'] = _series_or_default(base, 'market', 'WATCH')
     base['trade_date'] = today
-    base['trade_value_today'] = pd.to_numeric(base.get('trade_value_today', 0), errors='coerce').fillna(0)
-    base['volume_today'] = pd.to_numeric(base.get('volume_today', 0), errors='coerce').fillna(0)
-    base['close_today'] = pd.to_numeric(base.get('close_today', 0), errors='coerce').fillna(0)
+    base['trade_value_today'] = _numeric_series_or_zero(base, 'trade_value_today')
+    base['volume_today'] = _numeric_series_or_zero(base, 'volume_today')
+    base['close_today'] = _numeric_series_or_zero(base, 'close_today')
     return base.reset_index(drop=True)
 
 
@@ -78,6 +78,16 @@ def get_kr_stock_history(code: str) -> pd.DataFrame:
 
 def get_retirement_positions() -> pd.DataFrame:
     return mock_data.retirement_positions()
+
+
+def _series_or_default(df: pd.DataFrame, column: str, default) -> pd.Series:
+    if column in df.columns:
+        return df[column]
+    return pd.Series([default] * len(df), index=df.index)
+
+
+def _numeric_series_or_zero(df: pd.DataFrame, column: str) -> pd.Series:
+    return pd.to_numeric(_series_or_default(df, column, 0), errors='coerce').fillna(0)
 
 
 def _fallback_or_raise(fallback, message: str, exc: Exception) -> pd.DataFrame:
