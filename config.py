@@ -60,6 +60,10 @@ class Settings:
     max_kr_entry_gap_from_ma20_pct: float = _float_env('MAX_KR_ENTRY_GAP_FROM_MA20_PCT', '12')
     max_kr_trade_risk_pct: float = _float_env('MAX_KR_TRADE_RISK_PCT', '12')
     min_kr_trade_risk_pct: float = _float_env('MIN_KR_TRADE_RISK_PCT', '1.5')
+    gemini_api_key: str | None = os.getenv('GEMINI_API_KEY') or None
+    gemini_model: str = os.getenv('GEMINI_MODEL', 'gemini-3.5-flash')
+    gemini_enabled: bool = _bool(os.getenv('GEMINI_ENABLED'), False)
+    gemini_timeout_sec: int = _int_env('GEMINI_TIMEOUT_SEC', '30')
 
 
 settings = Settings()
