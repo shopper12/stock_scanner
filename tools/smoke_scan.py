@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -10,6 +11,9 @@ if str(ROOT_DIR) not in sys.path:
 from backtest.kr_short_evolution import run_kr_short_backtest
 from scan_once import run_full_scan
 from strategies.kr_short_rules import load_kr_short_rules
+
+REPORT_DIR = ROOT_DIR / 'reports'
+QUOTE_REPORT_PATH = REPORT_DIR / 'quote_quality_latest.json'
 
 
 def main() -> int:
@@ -26,6 +30,10 @@ def main() -> int:
     if not isinstance(payload['kr_short_stocks'], list):
         raise AssertionError('kr_short_stocks must be a list')
 
+    quote_report = _build_quote_report(payload)
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    QUOTE_REPORT_PATH.write_text(json.dumps(quote_report, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
+
     rules = load_kr_short_rules()
     backtest = run_kr_short_backtest(rules=rules, max_symbols=3)
     if 'trades' not in backtest or 'avg_return_pct' not in backtest:
@@ -36,12 +44,48 @@ def main() -> int:
     print(f"us_long_etfs={len(payload['us_long_etfs'])}")
     print(f"kr_retirement_etfs={len(payload['kr_retirement_etfs'])}")
     print(f"kr_short_stocks={len(payload['kr_short_stocks'])}")
+    print(f"quote_checked={quote_report['total']}")
+    print(f"quote_ok={quote_report['quote_ok']}")
+    print(f"quote_ok_rate={quote_report['quote_ok_rate']}")
     print(f"backtest_trades={backtest.get('trades')}")
     print(f"backtest_avg_return_pct={backtest.get('avg_return_pct')}")
     if payload['kr_short_stocks']:
         top = payload['kr_short_stocks'][0]
         print(f"top_kr_short={top.get('name')}({top.get('code')}) score={top.get('score')} setup={top.get('strategy_type')}")
+        print(f"top_price_basis={top.get('price_basis')} source={top.get('quote_source') or top.get('data_source')} ts={top.get('price_timestamp')}")
     return 0
+
+
+def _build_quote_report(payload: dict) -> dict:
+    rows = payload.get('kr_short_stocks', []) or []
+    total = len(rows)
+    ok = sum(1 for x in rows if x.get('quote_ok'))
+    by_source: dict[str, int] = {}
+    by_basis: dict[str, int] = {}
+    failures = []
+    for x in rows:
+        source = str(x.get('quote_source') or x.get('data_source') or 'unknown')
+        basis = str(x.get('price_basis') or 'unknown')
+        by_source[source] = by_source.get(source, 0) + 1
+        by_basis[basis] = by_basis.get(basis, 0) + 1
+        if not x.get('quote_ok'):
+            failures.append({
+                'code': x.get('code'),
+                'name': x.get('name'),
+                'error': x.get('quote_error'),
+                'fallback_basis': basis,
+            })
+    return {
+        'created_at_kst': payload.get('created_at_kst'),
+        'mode': payload.get('mode'),
+        'total': total,
+        'quote_ok': ok,
+        'quote_failed': total - ok,
+        'quote_ok_rate': round(ok / total, 4) if total else 0.0,
+        'by_source': by_source,
+        'by_price_basis': by_basis,
+        'failures': failures[:20],
+    }
 
 
 if __name__ == '__main__':
