@@ -7,6 +7,10 @@ on:
         description: 'Apply accepted rule update'
         required: false
         default: 'false'
+      ai_review:
+        description: 'Use Gemini report review when configured'
+        required: false
+        default: 'false'
   schedule:
     - cron: '10 8 * * 0'
 
@@ -39,12 +43,23 @@ jobs:
         env:
           USE_MOCK_DATA: '0'
           TIMEZONE: Asia/Seoul
+          GEMINI_ENABLED: ${{ github.event.inputs.ai_review || 'false' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-1.5-flash' }}
         run: |
           if [ "${{ github.event.inputs.apply }}" = "true" ]; then
             python tools/kr_short_check.py --apply
           else
             python tools/kr_short_check.py
           fi
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kr-short-report
+          path: reports/kr_short_evolution_latest.json
+          if-no-files-found: ignore
 
       - name: Commit accepted update
         run: |
