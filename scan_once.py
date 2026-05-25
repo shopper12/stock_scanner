@@ -1,19 +1,18 @@
 from __future__ import annotations
 
+import argparse
+import json
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
-import argparse
-import json
 
+from backtest.dca import simple_dca_backtest
 from config import settings
 from database.db import save_payload
-from notifier import build_mobile_summary, send_telegram_message
 from strategies.fx_conversion import analyze_fx_conversion
 from strategies.kr_retirement_etf import scan_kr_retirement_etfs
-from strategies.kr_short_stock import scan_kr_short_stocks
+from strategies.kr_short_stock_pure_runtime import scan_kr_short_stocks
 from strategies.us_long_etf import scan_us_long_etfs
-from backtest.dca import simple_dca_backtest
 
 ROOT_DIR = Path(__file__).resolve().parent
 REPORT_DIR = ROOT_DIR / 'reports'
@@ -45,8 +44,6 @@ def run_full_scan(notify: bool = False, write_report: bool = True) -> dict:
     if write_report:
         write_latest_report(payload)
         update_recommendation_history(created_at, kr_short_rows)
-    if notify:
-        send_telegram_message(build_mobile_summary(payload))
     return payload
 
 
@@ -129,13 +126,24 @@ def _data_quality(kr_short_rows: list[dict]) -> dict:
     }
 
 
+def _mobile_summary(payload: dict) -> str:
+    rows = payload.get('kr_short_stocks', [])
+    top = rows[0] if rows else {}
+    return '\n'.join([
+        f"created_at={payload.get('created_at_kst')}",
+        f"mode={payload.get('mode')}",
+        f"kr_short_count={len(rows)}",
+        f"top={top.get('name', '-') }({top.get('code', '-')}) score={top.get('score', '-')}",
+    ])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Run stock scanner once.')
-    parser.add_argument('--notify', action='store_true', help='Send Telegram summary if configured.')
+    parser.add_argument('--notify', action='store_true', help='Accepted for compatibility; no push is sent by this minimal runner.')
     parser.add_argument('--no-report', action='store_true', help='Do not write reports/latest.json.')
     args = parser.parse_args()
     payload = run_full_scan(notify=args.notify, write_report=not args.no_report)
-    print(build_mobile_summary(payload))
+    print(_mobile_summary(payload))
     print(f"latest_report={LATEST_REPORT_PATH}")
     print(f"history_report={HISTORY_REPORT_PATH}")
 
