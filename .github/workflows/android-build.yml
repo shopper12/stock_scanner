@@ -3,14 +3,8 @@ name: Android Build
 on:
   workflow_dispatch:
   push:
-    paths:
-      - 'app/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle.properties'
-      - 'gradlew'
-      - 'gradlew.bat'
-      - '.github/workflows/android-build.yml'
+    branches:
+      - main
 
 jobs:
   build:
