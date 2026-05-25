@@ -1,0 +1,7 @@
+{
+  "version_code": 2,
+  "version_name": "1.1",
+  "download_page_url": "https://github.com/shopper12/stock_scanner/actions/workflows/android-build.yml",
+  "release_notes": "조건 편집키 저장, 검색조건 수정 UI, 업데이트 확인 기능 추가",
+  "built_at_utc": "manual"
+}
