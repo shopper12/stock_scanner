@@ -1,5 +1,7 @@
 package com.stockscanner
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -40,13 +42,12 @@ private const val LATEST_URL = "$API_BASE_URL/api/latest"
 private const val RULES_URL = "$API_BASE_URL/api/kr-short-rules"
 private const val RUN_SCAN_URL = "$API_BASE_URL/api/run-scan"
 private const val HISTORY_URL = "$API_BASE_URL/api/recommendation-history"
+private const val UPDATE_PAGE_URL = "https://github.com/shopper12/stock_scanner/actions/workflows/android-build.yml"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            MaterialTheme { StockScannerScreen() }
-        }
+        setContent { MaterialTheme { StockScannerScreen() } }
     }
 }
 
@@ -74,6 +75,14 @@ private fun StockScannerScreen() {
         clearServerEditKey(context)
         editKey = ""
         message = "서버 편집키를 삭제했습니다."
+    }
+
+    fun openUpdatePage() {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UPDATE_PAGE_URL)))
+        }.onFailure {
+            message = "브라우저를 열 수 없습니다: $UPDATE_PAGE_URL"
+        }
     }
 
     suspend fun refresh() {
@@ -115,12 +124,18 @@ private fun StockScannerScreen() {
     ) {
         item { Text("Stock Scanner", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { scope.launch { refresh() } }, enabled = !loading && !saving) { Text(if (loading) "Loading" else "Refresh") }
-                Button(onClick = { scope.launch { saveRules() } }, enabled = rules != null && !loading && !saving) { Text(if (saving) "Saving" else "조건 저장+스캔") }
-                Button(onClick = { showHistory = !showHistory }) { Text(if (showHistory) "현재 후보" else "추천 이력") }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { scope.launch { refresh() } }, enabled = !loading && !saving) { Text(if (loading) "Loading" else "Refresh") }
+                    Button(onClick = { scope.launch { saveRules() } }, enabled = rules != null && !loading && !saving) { Text(if (saving) "Saving" else "조건 저장+스캔") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { showHistory = !showHistory }) { Text(if (showHistory) "현재 후보" else "추천 이력") }
+                    Button(onClick = { openUpdatePage() }) { Text("업데이트/APK") }
+                }
             }
         }
+        item { InfoCard("업데이트 방식: GitHub 수정 후 Android Build가 자동 실행됩니다. '업데이트/APK' 버튼을 누르고 최신 성공 빌드의 stock-scanner-debug-apk를 내려받아 설치하세요.") }
         if (error != null) item { InfoCard("API error: $error") }
         if (message != null) item { InfoCard(message ?: "") }
         if (showHistory) {
