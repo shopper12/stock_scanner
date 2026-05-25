@@ -10,7 +10,7 @@ import pandas as pd
 from analysis.gemini_report import review_report
 from data.market_data import get_kr_stock_history, get_kr_stock_universe
 from strategies.kr_short_rules import KrShortRules, load_kr_short_rules, rules_with_summary, save_kr_short_rules
-from strategies.kr_short_stock import _entry, _failure_condition, _prepare_history, _reason, _score, _select_diversified, _setup, _stop
+from strategies.kr_short_stock import _entry, _failure_condition, _prepare_history, _reason, _rsi14, _score, _select_diversified, _setup, _stop
 from strategies.metrics import momentum
 
 REPORT_DIR = Path(__file__).resolve().parents[1] / 'reports'
@@ -91,28 +91,38 @@ def _backtest_one_symbol(hist: pd.DataFrame, row: dict, rules: KrShortRules) -> 
         ma20 = float(latest['ma20'])
         ma60 = float(latest['ma60'])
         ma120 = float(latest['ma120'])
+        ma200 = float(latest['ma200'])
         atr14 = float(latest['atr14'])
-        if min(price, ma20, ma60, ma120, atr14) <= 0:
+        rsi14 = _rsi14(window['close'])
+        if min(price, ma20, ma60, ma120, ma200, atr14) <= 0:
             continue
 
         high20 = float(window['high'].iloc[-21:-1].max())
         high60 = float(window['high'].iloc[-61:-1].max())
+        high252 = float(window['high'].tail(252).max()) if len(window) >= 252 else float(window['high'].max())
         low10 = float(window['low'].tail(10).min())
         volume_ratio = _ratio(float(latest['volume']), float(latest['volume_ma20']))
         trade_value = float(latest.get('trade_value', price * latest['volume']))
         value_ratio = _ratio(trade_value, float(latest['trade_value_ma20']))
         drawdown60 = price / high60 - 1.0 if high60 else 0.0
+        drawdown52w = price / high252 - 1.0 if high252 else 0.0
         gap_ma20 = price / ma20 - 1.0
         ret5 = momentum(window['close'], 5)
         ret20 = momentum(window['close'], 20)
         ret60 = momentum(window['close'], 60)
+        ret252 = momentum(window['close'], min(252, len(window) - 1))
 
-        setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, high20, high60, drawdown60)
-        score = _score(price, ma20, ma60, ma120, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, drawdown60, gap_ma20, setup, rules.max_gap_ma20_pct)
+        sector_strength = float(row.get('sector_strength_score') or 50.0)
+        sector_rank = int(row.get('sector_rank') or 99)
+        market_rotation = float(row.get('market_rotation_score') or 50.0)
+        change_today = float(row.get('change_pct_today') or 0.0)
+
+        setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w)
+        score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct, sector_strength, sector_rank, market_rotation, change_today)
         if score < rules.score_threshold:
             continue
 
-        stop = _stop(price, ma20, ma60, low10, atr14)
+        stop = _stop(price, ma20, ma60, ma200, low10, atr14)
         if stop >= price:
             stop = price * 0.96
         risk_pct = (price - stop) / price * 100.0
@@ -147,7 +157,7 @@ def _backtest_one_symbol(hist: pd.DataFrame, row: dict, rules: KrShortRules) -> 
             'max_forward_pct': round(max_forward * 100, 2),
             'caught_surge': caught_surge,
             'r_multiple': round((trade_return * entry) / risk_per_share, 2),
-            'reason': _reason(setup, volume_ratio, value_ratio, ret20, drawdown60, gap_ma20, rules.max_gap_ma20_pct),
+            'reason': _reason(row.get('sector', '기타'), setup, volume_ratio, value_ratio, ret20, drawdown60, drawdown52w, gap_ma20, rsi14, rules.max_gap_ma20_pct, sector_rank, sector_strength, market_rotation, change_today),
             'failure_condition': _failure_condition(setup),
         })
     return out
