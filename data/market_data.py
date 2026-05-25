@@ -30,15 +30,14 @@ def get_fx_history() -> pd.DataFrame:
         return mock_data.fx_history()
     try:
         import yfinance as yf
-        usdkrw = yf.download('KRW=X', period='9mo', interval='1d', auto_adjust=True, progress=False).reset_index()
-        dxy = yf.download('DX-Y.NYB', period='9mo', interval='1d', auto_adjust=True, progress=False).reset_index()
-        us10y = yf.download('^TNX', period='9mo', interval='1d', auto_adjust=True, progress=False).reset_index()
-        vix = yf.download('^VIX', period='9mo', interval='1d', auto_adjust=True, progress=False).reset_index()
-        df = usdkrw[['Date', 'Close']].rename(columns={'Date': 'date', 'Close': 'usdkrw'})
-        df = df.merge(dxy[['Date', 'Close']].rename(columns={'Date': 'date', 'Close': 'dxy'}), on='date', how='left')
-        df = df.merge(us10y[['Date', 'Close']].rename(columns={'Date': 'date', 'Close': 'us10y'}), on='date', how='left')
-        df = df.merge(vix[['Date', 'Close']].rename(columns={'Date': 'date', 'Close': 'vix'}), on='date', how='left')
-        return df.ffill().dropna()
+        usdkrw = _normalise_yahoo_close(yf.download('KRW=X', period='9mo', interval='1d', auto_adjust=True, progress=False), 'usdkrw')
+        dxy = _normalise_yahoo_close(yf.download('DX-Y.NYB', period='9mo', interval='1d', auto_adjust=True, progress=False), 'dxy')
+        us10y = _normalise_yahoo_close(yf.download('^TNX', period='9mo', interval='1d', auto_adjust=True, progress=False), 'us10y')
+        vix = _normalise_yahoo_close(yf.download('^VIX', period='9mo', interval='1d', auto_adjust=True, progress=False), 'vix')
+        df = usdkrw.merge(dxy, on='date', how='left')
+        df = df.merge(us10y, on='date', how='left')
+        df = df.merge(vix, on='date', how='left')
+        return df.sort_values('date').ffill().dropna().reset_index(drop=True)
     except Exception as exc:
         return _fallback_or_raise(mock_data.fx_history, 'FX history fetch failed', exc)
 
@@ -125,6 +124,27 @@ def _normalise_yahoo_ohlcv(raw: pd.DataFrame) -> pd.DataFrame:
     if 'trade_value' not in df.columns:
         df['trade_value'] = df['close'] * df['volume']
     return df[['date', 'open', 'high', 'low', 'close', 'volume', 'trade_value']].dropna().reset_index(drop=True)
+
+
+def _normalise_yahoo_close(raw: pd.DataFrame, value_name: str) -> pd.DataFrame:
+    if raw is None or raw.empty:
+        raise ValueError(f'empty yfinance response for {value_name}')
+    df = raw.copy()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df = df.reset_index()
+    date_col = _first_existing_column(df, ('Date', 'Datetime', 'date', 'datetime', 'index'))
+    close_col = _first_existing_column(df, ('Close', 'Adj Close', 'close', 'adjclose'))
+    out = df[[date_col, close_col]].rename(columns={date_col: 'date', close_col: value_name})
+    out[value_name] = pd.to_numeric(out[value_name], errors='coerce')
+    return out.dropna().reset_index(drop=True)
+
+
+def _first_existing_column(df: pd.DataFrame, candidates: tuple[str, ...]) -> str:
+    for column in candidates:
+        if column in df.columns:
+            return column
+    raise KeyError(f'none of columns {candidates} found in {list(df.columns)}')
 
 
 def _recent_kr_dates(days: int) -> list[str]:
