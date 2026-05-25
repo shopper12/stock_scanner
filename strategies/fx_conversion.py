@@ -10,29 +10,24 @@ def analyze_fx_conversion() -> dict:
     df['ma60'] = df['usdkrw'].rolling(60).mean()
     df['ma120'] = df['usdkrw'].rolling(120).mean()
     latest = df.iloc[-1]
-    prev20 = df.iloc[-20] if len(df) >= 20 else df.iloc[0]
     usdkrw = float(latest['usdkrw'])
     ma60 = float(latest['ma60'])
     gap60 = usdkrw / ma60 - 1
-    dxy_down = float(latest['dxy']) < float(prev20['dxy'])
-    us10y_down = float(latest['us10y']) < float(prev20['us10y'])
 
-    if gap60 <= -0.015 and dxy_down and us10y_down:
+    if gap60 <= -0.03:
+        action = '적극 선환전'
+        ratio = 1.2
+    elif -0.03 < gap60 <= -0.015:
         action = '선환전 검토'
-        ratio = 0.6
-        reason = 'USD/KRW가 60일 평균보다 낮고 DXY·미국금리 하락 방향'
-    elif gap60 >= 0.02 and not dxy_down:
+        ratio = 0.8
+    elif -0.015 < gap60 <= 0.01:
+        action = '3~4회 분할환전'
+        ratio = 0.4
+    else:
         action = '최소환전 / 선환전 금지'
         ratio = 0.2
-        reason = 'USD/KRW가 60일 평균보다 높고 달러 강세 부담'
-    elif abs(gap60) < 0.015:
-        action = '3~4회 분할환전'
-        ratio = 0.35
-        reason = 'USD/KRW가 60일 평균권이라 환율 방향 우위가 약함'
-    else:
-        action = '부분환전'
-        ratio = 0.4
-        reason = '환율 우위가 명확하지 않아 매수 예정분만 분할 처리'
+
+    reason = f"실데이터: 현재 {usdkrw:.2f} / 60일평균 {ma60:.2f} / 괴리 {gap60 * 100:.1f}%"
 
     return {
         'usdkrw': round(usdkrw, 2),
