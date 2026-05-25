@@ -72,7 +72,7 @@ def get_kr_stock_history(code: str) -> pd.DataFrame:
     try:
         return _get_kr_yahoo_history(code, lookback_days=260)
     except Exception as exc:
-        return _fallback_or_raise(lambda: mock_data.kr_stock_history(code), f'KR stock history fetch failed for {code}', exc)
+        return _fallback_or_raise(lambda: mock_data.kr_stock_history(code), f'KR stock history failed for {code}', exc)
 
 
 def get_retirement_positions() -> pd.DataFrame:
@@ -115,36 +115,82 @@ def _get_kr_yahoo_history(code: str, lookback_days: int) -> pd.DataFrame:
 
 
 def _normalise_yahoo_ohlcv(raw: pd.DataFrame) -> pd.DataFrame:
-    df = raw.copy()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    df = df.reset_index().rename(columns={'Date': 'date', 'Datetime': 'date', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-    for col in ('open', 'high', 'low', 'close', 'volume'):
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    if 'trade_value' not in df.columns:
-        df['trade_value'] = df['close'] * df['volume']
-    return df[['date', 'open', 'high', 'low', 'close', 'volume', 'trade_value']].dropna().reset_index(drop=True)
+    if raw is None or raw.empty:
+        raise ValueError('empty yfinance OHLCV response')
+    df = _reset_yahoo_frame(raw)
+    date_col = _find_date_column(df)
+    open_col = _first_existing_column(df, ('Open', 'open'))
+    high_col = _first_existing_column(df, ('High', 'high'))
+    low_col = _first_existing_column(df, ('Low', 'low'))
+    close_col = _first_existing_column(df, ('Close', 'Adj Close', 'close', 'adjclose'))
+    volume_col = _first_existing_column(df, ('Volume', 'volume'), required=False)
+
+    out = pd.DataFrame(
+        {
+            'date': pd.to_datetime(df[date_col], errors='coerce'),
+            'open': pd.to_numeric(df[open_col], errors='coerce'),
+            'high': pd.to_numeric(df[high_col], errors='coerce'),
+            'low': pd.to_numeric(df[low_col], errors='coerce'),
+            'close': pd.to_numeric(df[close_col], errors='coerce'),
+            'volume': pd.to_numeric(df[volume_col], errors='coerce').fillna(0) if volume_col else 0,
+        }
+    )
+    out['trade_value'] = out['close'] * out['volume']
+    return out[['date', 'open', 'high', 'low', 'close', 'volume', 'trade_value']].dropna(subset=['date', 'open', 'high', 'low', 'close']).reset_index(drop=True)
 
 
 def _normalise_yahoo_close(raw: pd.DataFrame, value_name: str) -> pd.DataFrame:
     if raw is None or raw.empty:
         raise ValueError(f'empty yfinance response for {value_name}')
-    df = raw.copy()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    df = df.reset_index()
-    date_col = _first_existing_column(df, ('Date', 'Datetime', 'date', 'datetime', 'index'))
+    df = _reset_yahoo_frame(raw)
+    date_col = _find_date_column(df)
     close_col = _first_existing_column(df, ('Close', 'Adj Close', 'close', 'adjclose'))
-    out = df[[date_col, close_col]].rename(columns={date_col: 'date', close_col: value_name})
-    out[value_name] = pd.to_numeric(out[value_name], errors='coerce')
+    out = pd.DataFrame(
+        {
+            'date': pd.to_datetime(df[date_col], errors='coerce'),
+            value_name: pd.to_numeric(df[close_col], errors='coerce'),
+        }
+    )
     return out.dropna().reset_index(drop=True)
 
 
-def _first_existing_column(df: pd.DataFrame, candidates: tuple[str, ...]) -> str:
+def _reset_yahoo_frame(raw: pd.DataFrame) -> pd.DataFrame:
+    df = raw.copy()
+    df.columns = [_normalise_column_name(column) for column in df.columns]
+    df = df.reset_index()
+    df.columns = [_normalise_column_name(column) for column in df.columns]
+    return df.loc[:, ~pd.Index(df.columns).duplicated()].copy()
+
+
+def _normalise_column_name(column) -> str:
+    if isinstance(column, tuple):
+        parts = [str(part) for part in column if part is not None and str(part) and str(part) != 'nan']
+        price_names = {'Date', 'Datetime', 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'}
+        for part in parts:
+            if part in price_names:
+                return part
+        return '_'.join(parts) if parts else 'index'
+    return str(column)
+
+
+def _find_date_column(df: pd.DataFrame) -> str:
+    preferred = _first_existing_column(df, ('Date', 'Datetime', 'date', 'datetime', 'index'), required=False)
+    if preferred:
+        return preferred
+    for column in df.columns:
+        converted = pd.to_datetime(df[column], errors='coerce')
+        if converted.notna().mean() >= 0.8:
+            return column
+    raise KeyError(f'no date-like column found in {list(df.columns)}')
+
+
+def _first_existing_column(df: pd.DataFrame, candidates: tuple[str, ...], required: bool = True) -> str | None:
     for column in candidates:
         if column in df.columns:
             return column
-    raise KeyError(f'none of columns {candidates} found in {list(df.columns)}')
+    if required:
+        raise KeyError(f'none of columns {candidates} found in {list(df.columns)}')
+    return None
 
 
 def _recent_kr_dates(days: int) -> list[str]:
