@@ -1,0 +1,86 @@
+name: Add Chat Recommendation
+
+on:
+  workflow_dispatch:
+    inputs:
+      asset_type:
+        description: "kr_stock, kr_etf, us_equity, us_etf, crypto"
+        required: true
+        type: string
+      ticker:
+        description: "Ticker or code"
+        required: true
+        type: string
+      name:
+        description: "Display name"
+        required: false
+        type: string
+      currency:
+        description: "KRW or USD"
+        required: false
+        type: string
+      entry_low:
+        description: "Entry low"
+        required: true
+        type: string
+      entry_high:
+        description: "Entry high"
+        required: true
+        type: string
+      stop_loss:
+        description: "Stop loss"
+        required: true
+        type: string
+      target1:
+        description: "Target 1"
+        required: true
+        type: string
+      target2:
+        description: "Target 2"
+        required: false
+        type: string
+      session:
+        description: "morning, close, chat"
+        required: false
+        default: "chat"
+        type: string
+      source_status:
+        description: "conversation_recommended, holiday_substitute_recommended, error_kept_for_tracking"
+        required: false
+        default: "conversation_recommended"
+        type: string
+      memo:
+        description: "Memo"
+        required: false
+        default: "added_from_github_actions"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Add recommendation
+        run: |
+          python tools/add_chat_recommendation.py \
+            --asset-type "${{ inputs.asset_type }}" \
+            --ticker "${{ inputs.ticker }}" \
+            --name "${{ inputs.name }}" \
+            --currency "${{ inputs.currency }}" \
+            --entry-low "${{ inputs.entry_low }}" \
+            --entry-high "${{ inputs.entry_high }}" \
+            --stop-loss "${{ inputs.stop_loss }}" \
+            --target1 "${{ inputs.target1 }}" \
+            --target2 "${{ inputs.target2 }}" \
+            --session "${{ inputs.session }}" \
+            --source-status "${{ inputs.source_status }}" \
+            --memo "${{ inputs.memo }}" \
+            --git-push
