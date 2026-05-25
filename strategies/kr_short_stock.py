@@ -11,11 +11,12 @@ from strategies.metrics import atr, momentum, score_clip
 
 
 COLUMNS = [
-    'code', 'name', 'sector', 'current_price', 'price_basis', 'price_timestamp', 'history_last_date',
-    'quote_source', 'quote_ok', 'quote_error', 'score', 'entry', 'stop_loss', 'target1', 'target2',
-    'risk_pct', 'position_size_krw', 'holding_period', 'strategy_type', 'volume_ratio_20d',
-    'trade_value_ratio_20d', 'trade_value_krw', 'momentum_5d_pct', 'momentum_20d_pct',
-    'momentum_60d_pct', 'drawdown_60d_pct', 'drawdown_52w_pct', 'rsi14', 'reason', 'failure_condition', 'data_source'
+    'code', 'name', 'sector', 'market', 'sector_rank', 'sector_strength_score', 'market_rotation_score',
+    'current_price', 'price_basis', 'price_timestamp', 'history_last_date', 'quote_source', 'quote_ok',
+    'quote_error', 'score', 'entry', 'stop_loss', 'target1', 'target2', 'risk_pct', 'position_size_krw',
+    'holding_period', 'strategy_type', 'volume_ratio_20d', 'trade_value_ratio_20d', 'trade_value_krw',
+    'change_pct_today', 'momentum_5d_pct', 'momentum_20d_pct', 'momentum_60d_pct', 'drawdown_60d_pct',
+    'drawdown_52w_pct', 'rsi14', 'reason', 'failure_condition', 'data_source'
 ]
 
 
@@ -39,11 +40,11 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             if quote_ok and quote.get('price'):
                 price = float(quote['price'])
                 price_basis = 'realtime_quote'
-                data_source = 'yahoo_daily_plus_quote'
+                data_source = 'pykrx_daily_plus_quote'
             else:
                 price = daily_close
                 price_basis = 'last_daily_close'
-                data_source = 'yahoo_ks_kq_daily'
+                data_source = 'pykrx_daily'
             ma20 = float(latest['ma20'])
             ma60 = float(latest['ma60'])
             ma120 = float(latest['ma120'])
@@ -70,8 +71,13 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             ret60 = price / float(hist['close'].iloc[-61]) - 1.0 if len(hist) > 61 else momentum(hist['close'], 60)
             ret252 = price / float(hist['close'].iloc[-252]) - 1.0 if len(hist) > 252 else momentum(hist['close'], min(252, len(hist) - 1))
 
+            sector_strength = float(row.get('sector_strength_score') or 0.0)
+            sector_rank = int(row.get('sector_rank') or 99)
+            market_rotation = float(row.get('market_rotation_score') or 0.0)
+            change_today = float(row.get('change_pct_today') or 0.0)
+
             setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w)
-            score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct)
+            score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct, sector_strength, sector_rank, market_rotation, change_today)
             if score < max(60.0, rules.score_threshold):
                 continue
 
@@ -99,6 +105,10 @@ def scan_kr_short_stocks() -> pd.DataFrame:
                 'code': code,
                 'name': row['name'],
                 'sector': row.get('sector', '기타'),
+                'market': row.get('market', 'UNKNOWN'),
+                'sector_rank': sector_rank,
+                'sector_strength_score': round(sector_strength, 1),
+                'market_rotation_score': round(market_rotation, 1),
                 'current_price': round(price),
                 'price_basis': price_basis,
                 'price_timestamp': quote.get('timestamp_kst') if quote_ok else history_last_date,
@@ -118,13 +128,14 @@ def scan_kr_short_stocks() -> pd.DataFrame:
                 'volume_ratio_20d': round(volume_ratio, 2),
                 'trade_value_ratio_20d': round(value_ratio, 2),
                 'trade_value_krw': round(trade_value),
+                'change_pct_today': round(change_today, 2),
                 'momentum_5d_pct': round(ret5 * 100, 2),
                 'momentum_20d_pct': round(ret20 * 100, 2),
                 'momentum_60d_pct': round(ret60 * 100, 2),
                 'drawdown_60d_pct': round(drawdown60 * 100, 2),
                 'drawdown_52w_pct': round(drawdown52w * 100, 2),
                 'rsi14': round(rsi14, 1),
-                'reason': _reason(row.get('sector', '기타'), setup, volume_ratio, value_ratio, ret20, drawdown60, drawdown52w, gap_ma20, rsi14, rules.max_gap_ma20_pct),
+                'reason': _reason(row.get('sector', '기타'), setup, volume_ratio, value_ratio, ret20, drawdown60, drawdown52w, gap_ma20, rsi14, rules.max_gap_ma20_pct, sector_rank, sector_strength, market_rotation, change_today),
                 'failure_condition': _failure_condition(setup),
                 'data_source': data_source,
             })
@@ -133,7 +144,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
 
     if not records:
         return pd.DataFrame(columns=COLUMNS)
-    ranked = pd.DataFrame(records).sort_values(['score', 'trade_value_krw'], ascending=[False, False]).reset_index(drop=True)
+    ranked = pd.DataFrame(records).sort_values(['score', 'market_rotation_score', 'trade_value_krw'], ascending=[False, False, False]).reset_index(drop=True)
     return _select_diversified(ranked, max_items=5)
 
 
@@ -173,7 +184,7 @@ def _setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60:
     return 'watch'
 
 
-def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, setup: str, max_gap_ma20_pct: float) -> float:
+def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, setup: str, max_gap_ma20_pct: float, sector_strength: float, sector_rank: int, market_rotation: float, change_today: float) -> float:
     score = 50.0
     score += 12.0 if price > ma200 else -15.0
     score += 8.0 if price > ma60 else -5.0
@@ -201,6 +212,17 @@ def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, h
     liquidity = score_clip((trade_value / settings.min_kr_trade_value_krw) * 8.0, 0.0, 12.0)
     volume = score_clip((volume_ratio - 1.0) * 10.0, 0.0, 10.0) + score_clip((value_ratio - 1.0) * 5.0, 0.0, 6.0)
     score += liquidity + volume
+
+    score += score_clip(sector_strength / 100.0 * 12.0, 0.0, 12.0)
+    score += score_clip(market_rotation / 100.0 * 8.0, 0.0, 8.0)
+    if sector_rank <= 3:
+        score += 5.0
+    elif sector_rank <= 7:
+        score += 2.0
+    if change_today >= 3.0:
+        score += 3.0
+    elif change_today < -1.0:
+        score -= 4.0
 
     if setup == 'breakout':
         score += score_clip((price / high20 - 0.98) * 260.0, 0.0, 7.0)
@@ -268,8 +290,10 @@ def _format_date(value) -> str:
     return str(value)
 
 
-def _reason(sector: str, setup: str, volume_ratio: float, value_ratio: float, ret20: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, max_gap_ma20_pct: float) -> str:
-    flags = [f'{sector}(RSI {rsi14:.0f})']
+def _reason(sector: str, setup: str, volume_ratio: float, value_ratio: float, ret20: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, max_gap_ma20_pct: float, sector_rank: int, sector_strength: float, market_rotation: float, change_today: float) -> str:
+    flags = [f'{sector}(섹터 {sector_rank}위/{sector_strength:.0f}, 종목당일 {change_today:.1f}%, RSI {rsi14:.0f})']
+    if market_rotation >= 70:
+        flags.append('시장 자금 유입 상위')
     if setup == 'breakout':
         flags.append('20/60일 고점권 돌파')
     elif setup == 'pullback_reversal':
