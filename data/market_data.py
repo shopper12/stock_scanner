@@ -70,7 +70,7 @@ def get_kr_stock_history(code: str) -> pd.DataFrame:
     if settings.use_mock_data:
         return mock_data.kr_stock_history(code)
     try:
-        return _get_kr_yahoo_history(code, lookback_days=260)
+        return _get_kr_yahoo_history(code, lookback_days=420)
     except Exception as exc:
         return _fallback_or_raise(lambda: mock_data.kr_stock_history(code), f'KR stock history fetch failed for {code}', exc)
 
