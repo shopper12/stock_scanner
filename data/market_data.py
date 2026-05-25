@@ -115,10 +115,27 @@ def _get_kr_yahoo_history(code: str, lookback_days: int) -> pd.DataFrame:
 
 
 def _normalise_yahoo_ohlcv(raw: pd.DataFrame) -> pd.DataFrame:
+    if raw is None or raw.empty:
+        raise ValueError('empty yfinance OHLCV response')
     df = raw.copy()
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
-    df = df.reset_index().rename(columns={'Date': 'date', 'Datetime': 'date', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
+    df = df.reset_index()
+    date_col = _first_existing_column(df, ('Date', 'Datetime', 'date', 'datetime', 'index'))
+    rename_map = {
+        date_col: 'date',
+        'Open': 'open',
+        'High': 'high',
+        'Low': 'low',
+        'Close': 'close',
+        'Adj Close': 'close',
+        'Volume': 'volume',
+    }
+    df = df.rename(columns=rename_map)
+    required = ('date', 'open', 'high', 'low', 'close', 'volume')
+    missing = [col for col in required if col not in df.columns]
+    if missing:
+        raise KeyError(f'missing OHLCV columns {missing}; available columns={list(df.columns)}')
     for col in ('open', 'high', 'low', 'close', 'volume'):
         df[col] = pd.to_numeric(df[col], errors='coerce')
     if 'trade_value' not in df.columns:
