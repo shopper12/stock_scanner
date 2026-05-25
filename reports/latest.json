@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "created_at_kst": "bootstrap",
+  "mode": "bootstrap",
+  "ok": true,
+  "message": "Initial placeholder report. Run Smoke Scan with commit_report=true to replace this with live scan data.",
+  "data_quality": {
+    "kr_short_total": 0,
+    "kr_short_quote_ok": 0,
+    "kr_short_quote_ok_rate": 0.0,
+    "kr_short_realtime_price_count": 0,
+    "kr_short_daily_close_fallback_count": 0
+  },
+  "fx": {},
+  "us_long_etfs": [],
+  "kr_retirement_etfs": [],
+  "retirement_risk_report": {},
+  "kr_short_stocks": [],
+  "dca_backtest": {}
+}
