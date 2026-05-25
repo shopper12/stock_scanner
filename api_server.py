@@ -73,6 +73,57 @@ def _read_json(path: Path) -> tuple[int, dict]:
         return 500, {'ok': False, 'error': 'invalid_json', 'message': str(exc), 'path': str(path.relative_to(ROOT_DIR))}
 
 
+def _latest_payload() -> tuple[int, dict]:
+    status, data = _read_json(LATEST_PATH)
+    if status == 200:
+        data.setdefault('kr_sector_snapshot', _sector_snapshot_from_latest(data))
+    return status, data
+
+
+def _sector_snapshot_from_latest(data: dict) -> list[dict]:
+    rows = data.get('kr_short_stocks') or []
+    sectors: dict[str, dict] = {}
+    for row in rows:
+        sector = str(row.get('sector') or '기타')
+        bucket = sectors.setdefault(sector, {
+            'sector': sector,
+            'selected_count': 0,
+            'sector_rank': row.get('sector_rank'),
+            'sector_strength_score': row.get('sector_strength_score'),
+            'market_rotation_score': 0.0,
+            'trade_value_krw': 0.0,
+            'avg_change_pct_today': 0.0,
+            'top_stock': '',
+            'top_stock_code': '',
+            'top_score': 0.0,
+        })
+        bucket['selected_count'] += 1
+        bucket['trade_value_krw'] += float(row.get('trade_value_krw') or 0)
+        bucket['avg_change_pct_today'] += float(row.get('change_pct_today') or 0)
+        bucket['market_rotation_score'] = max(bucket['market_rotation_score'], float(row.get('market_rotation_score') or 0))
+        score = float(row.get('score') or 0)
+        if score >= float(bucket.get('top_score') or 0):
+            bucket['top_score'] = score
+            bucket['top_stock'] = row.get('name', '')
+            bucket['top_stock_code'] = str(row.get('code', '')).zfill(6)
+        rank = row.get('sector_rank')
+        if rank is not None and (bucket.get('sector_rank') is None or int(rank) < int(bucket['sector_rank'])):
+            bucket['sector_rank'] = rank
+        strength = row.get('sector_strength_score')
+        if strength is not None and float(strength) > float(bucket.get('sector_strength_score') or 0):
+            bucket['sector_strength_score'] = strength
+    out = []
+    for bucket in sectors.values():
+        count = max(int(bucket['selected_count']), 1)
+        bucket['avg_change_pct_today'] = round(bucket['avg_change_pct_today'] / count, 2)
+        bucket['trade_value_krw'] = round(bucket['trade_value_krw'])
+        bucket['market_rotation_score'] = round(bucket['market_rotation_score'], 1)
+        bucket['sector_strength_score'] = round(float(bucket.get('sector_strength_score') or 0), 1)
+        bucket['top_score'] = round(float(bucket.get('top_score') or 0), 1)
+        out.append(bucket)
+    return sorted(out, key=lambda x: (x.get('sector_rank') or 999, -x.get('sector_strength_score', 0), -x.get('trade_value_krw', 0)))[:12]
+
+
 def _rules_payload() -> dict:
     rules = asdict(load_kr_short_rules())
     return {
@@ -137,7 +188,7 @@ def _update_rules(data: dict) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'StockScannerAPI/1.2'
+    server_version = 'StockScannerAPI/1.3'
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
@@ -145,7 +196,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 'ok': True,
                 'service': 'stock_scanner_api',
-                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history'],
+                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/kr-sector-snapshot'],
                 'write_enabled': _write_enabled(),
                 'latest_report_exists': LATEST_PATH.exists(),
                 'quote_quality_report_exists': QUOTE_QUALITY_PATH.exists(),
@@ -153,7 +204,18 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         if path == '/api/latest':
-            status, data = _read_json(LATEST_PATH)
+            status, data = _latest_payload()
+            self._send_json(status, data)
+            return
+        if path == '/api/kr-sector-snapshot':
+            status, data = _latest_payload()
+            if status == 200:
+                data = {
+                    'ok': True,
+                    'created_at_kst': data.get('created_at_kst'),
+                    'mode': data.get('mode'),
+                    'kr_sector_snapshot': data.get('kr_sector_snapshot', []),
+                }
             self._send_json(status, data)
             return
         if path == '/api/quote-quality':
