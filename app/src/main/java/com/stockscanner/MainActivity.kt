@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +25,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,7 +34,10 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-private const val API_URL = "https://stock-scanner-api-5sk6.onrender.com/api/latest"
+private const val API_BASE_URL = "https://stock-scanner-api-5sk6.onrender.com"
+private const val LATEST_URL = "$API_BASE_URL/api/latest"
+private const val RULES_URL = "$API_BASE_URL/api/kr-short-rules"
+private const val RUN_SCAN_URL = "$API_BASE_URL/api/run-scan"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,48 +53,146 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun StockScannerScreen() {
     var loading by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
     var snapshot by remember { mutableStateOf<StockSnapshot?>(null) }
+    var rules by remember { mutableStateOf<KrShortRules?>(null) }
+    var adminToken by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     suspend fun refresh() {
         loading = true
         error = null
-        runCatching { fetchSnapshot() }
-            .onSuccess { snapshot = it }
-            .onFailure { error = it.message ?: it::class.java.simpleName }
+        runCatching {
+            snapshot = fetchSnapshot()
+            rules = fetchRules()
+        }.onFailure { error = it.message ?: it::class.java.simpleName }
         loading = false
+    }
+
+    suspend fun saveRules() {
+        val current = rules ?: return
+        saving = true
+        error = null
+        message = null
+        runCatching {
+            rules = postRules(current, adminToken)
+            val scanResult = runScan(adminToken)
+            snapshot = fetchSnapshot()
+            message = "조건 저장 및 재스캔 완료: KR 후보 ${scanResult.krShortCount}개"
+        }.onFailure { error = it.message ?: it::class.java.simpleName }
+        saving = false
     }
 
     LaunchedEffect(Unit) { refresh() }
 
-    Column(
+    LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Stock Scanner", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { scope.launch { refresh() } }, enabled = !loading) {
-                Text(if (loading) "Loading" else "Refresh")
-            }
+        item {
+            Text("Stock Scanner", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
-        if (error != null) {
-            InfoCard("API error: $error")
-        }
-        val data = snapshot
-        if (data == null) {
-            InfoCard(if (loading) "Loading latest scan." else "No scan data loaded.")
-        } else {
-            Text("Scan: ${data.createdAtKst} / mode=${data.mode}")
-            Text("Quote: ${data.quoteOk}/${data.total} (${formatPercent(data.quoteOkRate)})")
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (data.stocks.isEmpty()) {
-                    item { InfoCard("No KR short candidates.") }
-                } else {
-                    items(data.stocks) { stock -> StockCard(stock) }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { scope.launch { refresh() } }, enabled = !loading && !saving) {
+                    Text(if (loading) "Loading" else "Refresh")
+                }
+                Button(onClick = { scope.launch { saveRules() } }, enabled = rules != null && !loading && !saving) {
+                    Text(if (saving) "Saving" else "조건 저장+스캔")
                 }
             }
         }
+        if (error != null) item { InfoCard("API error: $error") }
+        if (message != null) item { InfoCard(message ?: "") }
+        item {
+            RulesEditor(
+                rules = rules,
+                adminToken = adminToken,
+                onAdminTokenChange = { adminToken = it },
+                onRulesChange = { rules = it },
+            )
+        }
+        val data = snapshot
+        item {
+            if (data == null) {
+                InfoCard(if (loading) "Loading latest scan." else "No scan data loaded.")
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Scan: ${data.createdAtKst} / mode=${data.mode}")
+                    Text("Quote: ${data.quoteOk}/${data.total} (${formatPercent(data.quoteOkRate)})")
+                }
+            }
+        }
+        if (data != null && data.stocks.isEmpty()) {
+            item { InfoCard("No KR short candidates.") }
+        } else if (data != null) {
+            items(data.stocks) { stock -> StockCard(stock) }
+        }
+    }
+}
+
+@Composable
+private fun RulesEditor(
+    rules: KrShortRules?,
+    adminToken: String,
+    onAdminTokenChange: (String) -> Unit,
+    onRulesChange: (KrShortRules) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("한국 단기 종목 검색 조건", fontWeight = FontWeight.Bold)
+            Text("아래 값은 서버의 KR 단기 스캐너 규칙입니다. 저장하려면 Render 환경변수 ADMIN_TOKEN과 같은 값을 입력해야 합니다.")
+            OutlinedTextField(
+                value = adminToken,
+                onValueChange = onAdminTokenChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("관리자 토큰") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+            )
+            if (rules == null) {
+                Text("조건 로딩 중 또는 조건 API 미배포 상태")
+                return@Column
+            }
+            RuleNumberField("최소 후보 점수", "score_threshold", rules.scoreThreshold, "이 점수보다 낮으면 후보 제외. 높이면 엄격, 낮추면 후보 증가.") {
+                onRulesChange(rules.copy(scoreThreshold = it))
+            }
+            RuleNumberField("최소 손절폭 %", "min_risk_pct", rules.minRiskPct, "진입가 대비 최소 손절폭. 너무 낮으면 노이즈 손절 증가.") {
+                onRulesChange(rules.copy(minRiskPct = it))
+            }
+            RuleNumberField("최대 손절폭 %", "max_risk_pct", rules.maxRiskPct, "진입가 대비 최대 허용 손절폭. 높이면 위험 큰 종목도 통과.") {
+                onRulesChange(rules.copy(maxRiskPct = it))
+            }
+            RuleNumberField("최대 진입 괴리율 %", "max_entry_gap_pct", rules.maxEntryGapPct, "돌파 진입가가 현재가보다 이 이상 높으면 제외.") {
+                onRulesChange(rules.copy(maxEntryGapPct = it))
+            }
+            RuleNumberField("MA20 과열 한도 %", "max_gap_ma20_pct", rules.maxGapMa20Pct, "현재가가 MA20보다 과도하게 높으면 점수 패널티.") {
+                onRulesChange(rules.copy(maxGapMa20Pct = it))
+            }
+            RuleNumberField("급등 검증 기준 %", "surge_threshold_pct", rules.surgeThresholdPct, "백테스트에서 급등으로 볼 기준 수익률.") {
+                onRulesChange(rules.copy(surgeThresholdPct = it))
+            }
+            RuleNumberField("기본 보유일", "hold_days", rules.holdDays.toDouble(), "단기 전략 검증 및 보유 기준 일수.") {
+                onRulesChange(rules.copy(holdDays = it.toInt()))
+            }
+            Text("현재 버전: ${rules.version}")
+        }
+    }
+}
+
+@Composable
+private fun RuleNumberField(labelKo: String, key: String, value: Double, help: String, onValue: (Double) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        OutlinedTextField(
+            value = trimNumber(value),
+            onValueChange = { text -> text.toDoubleOrNull()?.let(onValue) },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("$labelKo ($key)") },
+            singleLine = true,
+        )
+        Text(help, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -117,19 +220,48 @@ private fun InfoCard(text: String) {
 }
 
 private suspend fun fetchSnapshot(): StockSnapshot = withContext(Dispatchers.IO) {
-    val connection = (URL(API_URL).openConnection() as HttpURLConnection).apply {
-        requestMethod = "GET"
-        connectTimeout = 12000
-        readTimeout = 12000
+    val body = httpJson("GET", LATEST_URL, null, null)
+    parseSnapshot(JSONObject(body))
+}
+
+private suspend fun fetchRules(): KrShortRules = withContext(Dispatchers.IO) {
+    val body = httpJson("GET", RULES_URL, null, null)
+    parseRules(JSONObject(body).optJSONObject("rules") ?: JSONObject())
+}
+
+private suspend fun postRules(rules: KrShortRules, token: String): KrShortRules = withContext(Dispatchers.IO) {
+    val body = httpJson("POST", RULES_URL, rules.toJson().toString(), token)
+    parseRules(JSONObject(body).optJSONObject("rules") ?: JSONObject())
+}
+
+private suspend fun runScan(token: String): RunScanResult = withContext(Dispatchers.IO) {
+    val body = httpJson("POST", RUN_SCAN_URL, "{}", token)
+    val json = JSONObject(body)
+    RunScanResult(json.optInt("kr_short_count", 0))
+}
+
+private fun httpJson(method: String, url: String, requestBody: String?, token: String?): String {
+    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        requestMethod = method
+        connectTimeout = 15000
+        readTimeout = if (url == RUN_SCAN_URL) 60000 else 15000
         setRequestProperty("Accept", "application/json")
         setRequestProperty("User-Agent", "StockScanner-Android")
+        if (method == "POST") {
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            if (!token.isNullOrBlank()) setRequestProperty("X-Admin-Token", token)
+        }
     }
     try {
+        if (requestBody != null) {
+            connection.outputStream.use { it.write(requestBody.toByteArray(Charsets.UTF_8)) }
+        }
         val code = connection.responseCode
         val stream = if (code in 200..299) connection.inputStream else connection.errorStream
         val body = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         if (code !in 200..299) error("HTTP $code: $body")
-        parseSnapshot(JSONObject(body))
+        return body
     } finally {
         connection.disconnect()
     }
@@ -175,6 +307,29 @@ private fun parseSnapshot(json: JSONObject): StockSnapshot {
     )
 }
 
+private fun parseRules(json: JSONObject): KrShortRules = KrShortRules(
+    version = json.optInt("version", 1),
+    scoreThreshold = json.optDouble("score_threshold", 62.0),
+    minRiskPct = json.optDouble("min_risk_pct", 1.5),
+    maxRiskPct = json.optDouble("max_risk_pct", 12.0),
+    maxEntryGapPct = json.optDouble("max_entry_gap_pct", 3.5),
+    maxGapMa20Pct = json.optDouble("max_gap_ma20_pct", 12.0),
+    surgeThresholdPct = json.optDouble("surge_threshold_pct", 15.0),
+    holdDays = json.optInt("hold_days", 10),
+)
+
+private fun KrShortRules.toJson(): JSONObject = JSONObject().apply {
+    put("rules", JSONObject().apply {
+        put("score_threshold", scoreThreshold)
+        put("min_risk_pct", minRiskPct)
+        put("max_risk_pct", maxRiskPct)
+        put("max_entry_gap_pct", maxEntryGapPct)
+        put("max_gap_ma20_pct", maxGapMa20Pct)
+        put("surge_threshold_pct", surgeThresholdPct)
+        put("hold_days", holdDays)
+    })
+}
+
 private data class StockSnapshot(
     val createdAtKst: String,
     val mode: String,
@@ -203,6 +358,20 @@ private data class KrShortStock(
     val failureCondition: String,
 )
 
+private data class KrShortRules(
+    val version: Int,
+    val scoreThreshold: Double,
+    val minRiskPct: Double,
+    val maxRiskPct: Double,
+    val maxEntryGapPct: Double,
+    val maxGapMa20Pct: Double,
+    val surgeThresholdPct: Double,
+    val holdDays: Int,
+)
+
+private data class RunScanResult(val krShortCount: Int)
+
 private fun formatPrice(value: Double): String = String.format("%,.0f", value)
 private fun formatNumber(value: Double): String = String.format("%.2f", value)
 private fun formatPercent(value: Double): String = String.format("%.1f%%", value * 100)
+private fun trimNumber(value: Double): String = if (value % 1.0 == 0.0) value.toInt().toString() else String.format("%.2f", value)
