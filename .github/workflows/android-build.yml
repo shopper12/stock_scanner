@@ -13,6 +13,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/stock-scanner-upload.jks
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -30,14 +35,20 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK
-        run: sh ./gradlew :app:assembleDebug
+      - name: Restore Android signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$ANDROID_KEYSTORE_FILE"
+
+      - name: Build signed release APK
+        run: sh ./gradlew :app:assembleRelease
 
       - name: Prepare latest APK assets
         run: |
           VERSION_CODE=$(grep -E 'versionCode = ' app/build.gradle.kts | head -1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
           VERSION_NAME=$(grep -E 'versionName = ' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          cp app/build/outputs/apk/debug/*.apk stock-scanner-latest.apk
+          cp app/build/outputs/apk/release/*.apk stock-scanner-latest.apk
           cat > app_version.json <<EOF
           {
             "version_code": ${VERSION_CODE},
@@ -49,10 +60,10 @@ jobs:
           EOF
           cat app_version.json
 
-      - name: Upload debug APK artifact
+      - name: Upload signed release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: stock-scanner-debug-apk
+          name: stock-scanner-release-apk
           path: stock-scanner-latest.apk
           if-no-files-found: error
 
@@ -64,7 +75,7 @@ jobs:
           git push -f origin app-latest
           if gh release view app-latest >/dev/null 2>&1; then
             gh release upload app-latest stock-scanner-latest.apk app_version.json --clobber
-            gh release edit app-latest --title "Stock Scanner Latest" --notes "Latest debug APK built from ${GITHUB_SHA}."
+            gh release edit app-latest --title "Stock Scanner Latest" --notes "Latest signed release APK built from ${GITHUB_SHA}."
           else
-            gh release create app-latest stock-scanner-latest.apk app_version.json --title "Stock Scanner Latest" --notes "Latest debug APK built from ${GITHUB_SHA}."
+            gh release create app-latest stock-scanner-latest.apk app_version.json --title "Stock Scanner Latest" --notes "Latest signed release APK built from ${GITHUB_SHA}."
           fi
