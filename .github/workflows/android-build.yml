@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,9 +33,38 @@ jobs:
       - name: Build debug APK
         run: sh ./gradlew :app:assembleDebug
 
-      - name: Upload debug APK
+      - name: Prepare latest APK assets
+        run: |
+          VERSION_CODE=$(grep -E 'versionCode = ' app/build.gradle.kts | head -1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+          VERSION_NAME=$(grep -E 'versionName = ' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          cp app/build/outputs/apk/debug/*.apk stock-scanner-latest.apk
+          cat > app_version.json <<EOF
+          {
+            "version_code": ${VERSION_CODE},
+            "version_name": "${VERSION_NAME}",
+            "apk_url": "https://github.com/shopper12/stock_scanner/releases/download/app-latest/stock-scanner-latest.apk",
+            "built_at_utc": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "commit_sha": "${GITHUB_SHA}"
+          }
+          EOF
+          cat app_version.json
+
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: stock-scanner-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: stock-scanner-latest.apk
           if-no-files-found: error
+
+      - name: Publish latest release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git tag -f app-latest
+          git push -f origin app-latest
+          if gh release view app-latest >/dev/null 2>&1; then
+            gh release upload app-latest stock-scanner-latest.apk app_version.json --clobber
+            gh release edit app-latest --title "Stock Scanner Latest" --notes "Latest debug APK built from ${GITHUB_SHA}."
+          else
+            gh release create app-latest stock-scanner-latest.apk app_version.json --title "Stock Scanner Latest" --notes "Latest debug APK built from ${GITHUB_SHA}."
+          fi
