@@ -28,26 +28,28 @@ def _dca_plan(ticker: str, score: float, price: float, ma20: float, ma60: float,
     else:
         base_buy_pct = 40.0
     sector_bonus = 0.0
-    if ticker in {'SMH', 'QQQ'} and score >= 75:
+    if ticker in {'MAGS', 'SOXX', 'BOTZ'} and score >= 70:
+        sector_bonus = 20.0
+    elif ticker in {'SMH', 'QQQ'} and score >= 75:
         sector_bonus = 15.0
     elif ticker in {'TLT', 'DBC'} and score < 65:
         sector_bonus = -10.0
-    buy_pct = max(20.0, min(70.0, base_buy_pct + sector_bonus))
+    buy_pct = max(20.0, min(75.0, base_buy_pct + sector_bonus))
 
     if '최소환전' in fx_signal or '선환전 금지' in fx_signal:
         buy_pct = min(buy_pct, 40.0)
 
-    if rsi14 > 75:
+    if rsi14 > 78:
         buy_pct = 0.0
         trigger = f'RSI {rsi14:.0f} 과열: 신규매수 중단, 보유분 유지'
-    elif drawdown_52w > -0.03 and rsi14 > 65:
-        buy_pct = min(buy_pct, 20.0)
-        trigger = f'고점 밀착({drawdown_52w * 100:.1f}%) + RSI {rsi14:.0f}: 이번달 기본매수 20%로 축소'
+    elif drawdown_52w > -0.03 and rsi14 > 68:
+        buy_pct = min(buy_pct, 25.0)
+        trigger = f'고점 밀착({drawdown_52w * 100:.1f}%) + RSI {rsi14:.0f}: 이번달 기본매수 25%로 축소'
     elif price <= ma60 * 1.03 and rsi14 < 60:
-        buy_pct = min(70.0, buy_pct + 20.0)
+        buy_pct = min(75.0, buy_pct + 20.0)
         trigger = f'MA60({_fmt_price(ma60)}) 눌림 + RSI {rsi14:.0f}: 기본 40% + 추가 20% 가능'
     else:
-        trigger = f'상승추세: 기본매수 {buy_pct:.0f}%, 추격 금지'
+        trigger = f'상승추세: 기본매수 {buy_pct:.0f}%, 과열 추격 금지'
 
     context = f'현재 {_fmt_price(price)} / RSI {rsi14:.0f} / MA20 {_fmt_price(ma20)} / MA60 {_fmt_price(ma60)} / MA200 {_fmt_price(ma200)}'
     return buy_pct, 100.0 - buy_pct, f'{context} / {trigger}'
@@ -91,9 +93,9 @@ def scan_us_long_etfs(fx_signal: str = '분할환전') -> pd.DataFrame:
         dd_score = score_clip(15 + drawdown_52w * 70, 0, 15)
         vol_score = score_clip(10 - vol * 20, 0, 10)
         rsi_score = 0.0
-        if 50 <= rsi14 <= 65:
+        if 50 <= rsi14 <= 68:
             rsi_score = 5.0
-        elif rsi14 > 75:
+        elif rsi14 > 78:
             rsi_score = -8.0
         elif rsi14 < 35:
             rsi_score = -5.0
@@ -123,10 +125,10 @@ def _risk_summary(asset_class: str, price: float, ma20: float, ma200: float, dra
         risks.append(f'MA200({_fmt_price(ma200)}) 이탈: 리밸런싱 검토')
     if drawdown_52w > -0.03:
         risks.append('52주 고점 근접: 추격매수 위험')
-    if rsi14 > 75:
+    if rsi14 > 78:
         risks.append('RSI 과열: 신규매수 중단')
     if vol > 0.25:
         risks.append('변동성 높음')
-    if asset_class in {'Semiconductor', 'AI', 'Nasdaq100'}:
+    if asset_class in {'Semiconductor', 'AI', 'AI/Growth', 'AI/Robotics', 'Nasdaq100'}:
         risks.append('기술주 밸류에이션/금리 민감')
     return ', '.join(risks) if risks else f'장기 분할매수 가능 구간: MA200({_fmt_price(ma200)}) 위 유지'
