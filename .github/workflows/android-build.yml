@@ -8,6 +8,7 @@ on:
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle.properties'
+      - 'gradlew'
       - 'gradlew.bat'
       - '.github/workflows/android-build.yml'
 
@@ -33,7 +34,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug
+        run: sh ./gradlew :app:assembleDebug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
