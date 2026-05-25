@@ -1,11 +1,15 @@
 {
-  "created_at_kst": "2026-05-25 10:47:49 KST",
+  "created_at_kst": "2026-05-25 11:31:16 KST",
   "mode": "live",
-  "total": 0,
-  "quote_ok": 0,
+  "total": 2,
+  "quote_ok": 2,
   "quote_failed": 0,
-  "quote_ok_rate": 0.0,
-  "by_source": {},
-  "by_price_basis": {},
+  "quote_ok_rate": 1.0,
+  "by_source": {
+    "naver_item_summary": 2
+  },
+  "by_price_basis": {
+    "realtime_quote": 2
+  },
   "failures": []
 }
