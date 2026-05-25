@@ -13,6 +13,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 REPORT_DIR = ROOT_DIR / 'reports'
 LATEST_PATH = REPORT_DIR / 'latest.json'
 QUOTE_QUALITY_PATH = REPORT_DIR / 'quote_quality_latest.json'
+RECOMMENDATION_HISTORY_PATH = REPORT_DIR / 'recommendation_history.json'
 
 RULE_DESCRIPTIONS = {
     'score_threshold': '한국 단기 후보 최소 점수. 이 값보다 낮으면 후보에서 제외됩니다.',
@@ -65,20 +66,11 @@ RULE_BOUNDS = {
 
 def _read_json(path: Path) -> tuple[int, dict]:
     if not path.exists():
-        return 404, {
-            'ok': False,
-            'error': 'file_not_found',
-            'path': str(path.relative_to(ROOT_DIR)),
-        }
+        return 404, {'ok': False, 'error': 'file_not_found', 'path': str(path.relative_to(ROOT_DIR))}
     try:
         return 200, json.loads(path.read_text(encoding='utf-8'))
     except Exception as exc:
-        return 500, {
-            'ok': False,
-            'error': 'invalid_json',
-            'message': str(exc),
-            'path': str(path.relative_to(ROOT_DIR)),
-        }
+        return 500, {'ok': False, 'error': 'invalid_json', 'message': str(exc), 'path': str(path.relative_to(ROOT_DIR))}
 
 
 def _rules_payload() -> dict:
@@ -113,10 +105,7 @@ def _write_enabled() -> bool:
 
 def _coerce_rule_value(key: str, raw):
     target_type = EDITABLE_RULE_FIELDS[key]
-    if target_type is int:
-        value = int(raw)
-    else:
-        value = float(raw)
+    value = int(raw) if target_type is int else float(raw)
     lower, upper = RULE_BOUNDS[key]
     if value < lower or value > upper:
         raise ValueError(f'{key}={value} outside allowed range [{lower}, {upper}]')
@@ -148,7 +137,7 @@ def _update_rules(data: dict) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'StockScannerAPI/1.1'
+    server_version = 'StockScannerAPI/1.2'
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
@@ -156,10 +145,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 'ok': True,
                 'service': 'stock_scanner_api',
-                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules'],
+                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history'],
                 'write_enabled': _write_enabled(),
                 'latest_report_exists': LATEST_PATH.exists(),
                 'quote_quality_report_exists': QUOTE_QUALITY_PATH.exists(),
+                'recommendation_history_exists': RECOMMENDATION_HISTORY_PATH.exists(),
             })
             return
         if path == '/api/latest':
@@ -172,6 +162,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == '/api/kr-short-rules':
             self._send_json(200, _rules_payload())
+            return
+        if path == '/api/recommendation-history':
+            status, data = _read_json(RECOMMENDATION_HISTORY_PATH)
+            self._send_json(status, data)
             return
         self._send_json(404, {'ok': False, 'error': 'not_found', 'path': path})
 
