@@ -39,7 +39,9 @@ def us_history(ticker: str) -> pd.DataFrame:
         'GLD': (215, 0.18, 0.009), 'TLT': (94, -0.05, 0.011),
     }
     start, trend, vol = params.get(ticker, (100, 0.12, 0.012))
-    return _price_series(start, trend, vol, seed=seed)
+    df = _price_series(start, trend, vol, seed=seed)
+    df['trade_value'] = df['close'] * df['volume']
+    return df
 
 
 def fx_history() -> pd.DataFrame:
@@ -68,7 +70,9 @@ def kr_etf_history(code: str) -> pd.DataFrame:
     seed = abs(hash(code)) % 10_000
     trend = 0.16 if code in {'360750', '379810', '458730'} else 0.05
     vol = 0.012 if code in {'360750', '379810'} else 0.006
-    return _price_series(10000, trend, vol, periods=320, seed=seed)
+    df = _price_series(10000, trend, vol, periods=320, seed=seed)
+    df['trade_value'] = df['close'] * df['volume']
+    return df
 
 
 def kr_stock_universe() -> pd.DataFrame:
@@ -81,7 +85,7 @@ def kr_stock_history(code: str) -> pd.DataFrame:
     trend_map = {'042700': 0.34, '267260': 0.42, '010120': 0.28, '034020': 0.18}
     trend = trend_map.get(code, 0.10)
     vol = 0.022 if code in trend_map else 0.014
-    df = _price_series(50000, trend, vol, periods=120, seed=seed)
+    df = _price_series(50000, trend, vol, periods=420, seed=seed)
     df['trade_value'] = df['close'] * df['volume']
     return df
 
