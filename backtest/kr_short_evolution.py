@@ -117,19 +117,19 @@ def _backtest_one_symbol(hist: pd.DataFrame, row: dict, rules: KrShortRules) -> 
         market_rotation = float(row.get('market_rotation_score') or 50.0)
         change_today = float(row.get('change_pct_today') or 0.0)
 
-        setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w)
+        setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w, high252)
         score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct, sector_strength, sector_rank, market_rotation, change_today)
         if score < rules.score_threshold:
             continue
 
-        stop = _stop(price, ma20, ma60, ma200, low10, atr14)
+        stop = _stop(price, ma20, ma60, ma200, low10, atr14, setup)
         if stop >= price:
             stop = price * 0.96
         risk_pct = (price - stop) / price * 100.0
         if risk_pct < rules.min_risk_pct or risk_pct > rules.max_risk_pct:
             continue
 
-        entry = _entry(price, high20, ma20, setup)
+        entry = _entry(price, high20, ma20, setup, high252)
         if entry / price - 1.0 > rules.max_entry_gap_pct / 100.0:
             continue
 
