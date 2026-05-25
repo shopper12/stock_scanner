@@ -44,6 +44,7 @@ class Settings:
     # Live data is the default. Set USE_MOCK_DATA=1 only for UI/build tests.
     allow_data_fallback: bool = _bool(os.getenv('ALLOW_DATA_FALLBACK'), False)
     use_mock_data: bool = _bool(os.getenv('USE_MOCK_DATA'), False)
+    bull_market_mode: bool = _bool(os.getenv('BULL_MARKET_MODE'), False)
     database_url: str = os.getenv('DATABASE_URL', f"sqlite:///{BASE_DIR / 'stock_scanner.db'}")
     timezone: str = os.getenv('TIMEZONE', 'Asia/Seoul')
     telegram_bot_token: str | None = os.getenv('TELEGRAM_BOT_TOKEN') or None
@@ -58,6 +59,7 @@ class Settings:
     min_kr_trade_value_krw: float = _float_env('MIN_KR_TRADE_VALUE_KRW', '5000000000')
     min_kr_price: float = _float_env('MIN_KR_PRICE', '1000')
     kr_universe_top_n: int = _int_env('KR_UNIVERSE_TOP_N', '80')
+    kr_universe_top_n_bull: int = _int_env('KR_UNIVERSE_TOP_N_BULL', '50')
     max_kr_entry_gap_from_ma20_pct: float = _float_env('MAX_KR_ENTRY_GAP_FROM_MA20_PCT', '12')
     max_kr_trade_risk_pct: float = _float_env('MAX_KR_TRADE_RISK_PCT', '12')
     min_kr_trade_risk_pct: float = _float_env('MIN_KR_TRADE_RISK_PCT', '1.5')
