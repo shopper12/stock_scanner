@@ -14,20 +14,24 @@ def analyze_fx_conversion() -> dict:
     ma60 = float(latest['ma60'])
     gap60 = usdkrw / ma60 - 1
 
-    if gap60 <= -0.03:
+    if gap60 <= -0.035:
         action = '적극 선환전'
-        ratio = 1.2
-    elif -0.03 < gap60 <= -0.015:
+        suggested_conversion_krw = min(settings.us_monthly_budget_krw, 1_500_000)
+        reason = f'현재 {usdkrw:.1f} / 60일 평균 {ma60:.1f} / 괴리 {gap60 * 100:.1f}% — 적극 환전 구간'
+    elif -0.035 < gap60 <= -0.015:
         action = '선환전 검토'
-        ratio = 0.8
+        suggested_conversion_krw = min(settings.us_monthly_budget_krw, 900_000)
+        reason = f'현재 {usdkrw:.1f} / 60일 평균 {ma60:.1f} / 괴리 {gap60 * 100:.1f}% — 선환전 유리'
     elif -0.015 < gap60 <= 0.01:
         action = '3~4회 분할환전'
-        ratio = 0.4
+        suggested_conversion_krw = min(settings.us_monthly_budget_krw, 400_000)
+        reason = f'현재 {usdkrw:.1f} / 60일 평균 {ma60:.1f} / 괴리 {gap60 * 100:.1f}% — 평균 수준'
     else:
         action = '최소환전 / 선환전 금지'
-        ratio = 0.2
+        suggested_conversion_krw = min(settings.us_monthly_budget_krw, 150_000)
+        reason = f'현재 {usdkrw:.1f} / 60일 평균 {ma60:.1f} / 괴리 {gap60 * 100:.1f}% — 환전 비용 발생'
 
-    reason = f"실데이터: 현재 {usdkrw:.2f} / 60일평균 {ma60:.2f} / 괴리 {gap60 * 100:.1f}%"
+    ratio = suggested_conversion_krw / settings.us_monthly_budget_krw if settings.us_monthly_budget_krw else 0.0
 
     return {
         'usdkrw': round(usdkrw, 2),
@@ -40,6 +44,6 @@ def analyze_fx_conversion() -> dict:
         'vix': round(float(latest['vix']), 2),
         'action': action,
         'suggested_conversion_ratio_pct': round(ratio * 100, 1),
-        'suggested_conversion_krw': round(settings.us_monthly_budget_krw * ratio),
+        'suggested_conversion_krw': round(suggested_conversion_krw),
         'reason': reason,
     }
