@@ -15,7 +15,7 @@ COLUMNS = [
     'quote_source', 'quote_ok', 'quote_error', 'score', 'entry', 'stop_loss', 'target1', 'target2',
     'risk_pct', 'position_size_krw', 'holding_period', 'strategy_type', 'volume_ratio_20d',
     'trade_value_ratio_20d', 'trade_value_krw', 'momentum_5d_pct', 'momentum_20d_pct',
-    'momentum_60d_pct', 'drawdown_60d_pct', 'drawdown_52w_pct', 'reason', 'failure_condition', 'data_source'
+    'momentum_60d_pct', 'drawdown_60d_pct', 'drawdown_52w_pct', 'rsi14', 'reason', 'failure_condition', 'data_source'
 ]
 
 
@@ -49,6 +49,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             ma120 = float(latest['ma120'])
             ma200 = float(latest['ma200'])
             atr14 = float(latest['atr14'])
+            rsi14 = _rsi14(hist['close'])
             if min(price, ma20, ma60, ma120, ma200, atr14) <= 0:
                 continue
 
@@ -69,8 +70,8 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             ret60 = price / float(hist['close'].iloc[-61]) - 1.0 if len(hist) > 61 else momentum(hist['close'], 60)
             ret252 = price / float(hist['close'].iloc[-252]) - 1.0 if len(hist) > 252 else momentum(hist['close'], min(252, len(hist) - 1))
 
-            setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60)
-            score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, setup, rules.max_gap_ma20_pct)
+            setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w)
+            score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct)
             if score < max(60.0, rules.score_threshold):
                 continue
 
@@ -89,8 +90,9 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             risk_budget = settings.account_equity_krw * settings.risk_per_trade_pct / 100.0
             shares = math.floor(risk_budget / risk_per_share)
             position_size = min(settings.account_equity_krw * 0.25, max(0, shares * entry))
-            target1 = entry + risk_per_share * 2.0
-            target2 = entry + risk_per_share * 3.2
+            target_base = max(entry, price)
+            target1 = target_base * 1.08
+            target2 = target_base * 1.16
             history_last_date = _format_date(latest.get('date'))
 
             records.append({
@@ -121,7 +123,8 @@ def scan_kr_short_stocks() -> pd.DataFrame:
                 'momentum_60d_pct': round(ret60 * 100, 2),
                 'drawdown_60d_pct': round(drawdown60 * 100, 2),
                 'drawdown_52w_pct': round(drawdown52w * 100, 2),
-                'reason': _reason(setup, volume_ratio, value_ratio, ret20, drawdown60, drawdown52w, gap_ma20, rules.max_gap_ma20_pct),
+                'rsi14': round(rsi14, 1),
+                'reason': _reason(row.get('sector', '기타'), setup, volume_ratio, value_ratio, ret20, drawdown60, drawdown52w, gap_ma20, rsi14, rules.max_gap_ma20_pct),
                 'failure_condition': _failure_condition(setup),
                 'data_source': data_source,
             })
@@ -145,8 +148,22 @@ def _prepare_history(hist: pd.DataFrame) -> pd.DataFrame:
     return hist.dropna().reset_index(drop=True)
 
 
-def _setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, drawdown60: float) -> str:
+def _rsi14(close: pd.Series) -> float:
+    if len(close) < 15:
+        return 50.0
+    changes = close.astype(float).diff().dropna().tail(14)
+    gains = changes.clip(lower=0).mean()
+    losses = (-changes.clip(upper=0)).mean()
+    if losses <= 0:
+        return 100.0 if gains > 0 else 50.0
+    rs = gains / losses
+    return float(100.0 - (100.0 / (1.0 + rs)))
+
+
+def _setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, drawdown60: float, drawdown52w: float) -> str:
     aligned = price > ma20 > ma60 > ma120 and price > ma200
+    if -0.08 <= drawdown52w <= -0.03 and price > ma20:
+        return 'first_pullback_after_high'
     if aligned and price >= high20 * 0.995 and price >= high60 * 0.985:
         return 'breakout'
     if prev_close <= prev_ma20 and price > ma20 and price > ma60 and price > ma200 and -0.18 <= drawdown60 <= -0.035:
@@ -156,7 +173,7 @@ def _setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60:
     return 'watch'
 
 
-def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, setup: str, max_gap_ma20_pct: float) -> float:
+def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, setup: str, max_gap_ma20_pct: float) -> float:
     score = 50.0
     score += 12.0 if price > ma200 else -15.0
     score += 8.0 if price > ma60 else -5.0
@@ -168,7 +185,18 @@ def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, h
     score += score_clip(ret5 * 45.0, -5.0, 6.0)
     if -0.18 <= drawdown60 <= -0.05 and price > ma60:
         score += 4.0
+    if drawdown52w > -0.03:
+        score -= 5.0
+    if -0.08 <= drawdown52w <= -0.03 and price > ma20:
+        score += 6.0
     score += score_clip(drawdown52w * 30.0, -12.0, 0.0)
+
+    if 50 <= rsi14 <= 65:
+        score += 5.0
+    elif rsi14 > 75:
+        score -= 8.0
+    elif rsi14 < 35:
+        score -= 5.0
 
     liquidity = score_clip((trade_value / settings.min_kr_trade_value_krw) * 8.0, 0.0, 12.0)
     volume = score_clip((volume_ratio - 1.0) * 10.0, 0.0, 10.0) + score_clip((value_ratio - 1.0) * 5.0, 0.0, 6.0)
@@ -180,6 +208,8 @@ def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, h
         score += 5.0
     elif setup == 'trend_continuation':
         score += 3.0
+    elif setup == 'first_pullback_after_high':
+        score += 7.0
 
     if gap_ma20 > max_gap_ma20_pct / 100.0:
         score -= 12.0
@@ -193,7 +223,7 @@ def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, h
 def _entry(price: float, high20: float, ma20: float, setup: str) -> float:
     if setup == 'breakout':
         return max(price, high20 * 1.002)
-    if setup == 'pullback_reversal':
+    if setup in {'pullback_reversal', 'first_pullback_after_high'}:
         return max(price, ma20 * 1.005)
     return price
 
@@ -238,12 +268,14 @@ def _format_date(value) -> str:
     return str(value)
 
 
-def _reason(setup: str, volume_ratio: float, value_ratio: float, ret20: float, drawdown60: float, drawdown52w: float, gap_ma20: float, max_gap_ma20_pct: float) -> str:
-    flags = []
+def _reason(sector: str, setup: str, volume_ratio: float, value_ratio: float, ret20: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, max_gap_ma20_pct: float) -> str:
+    flags = [f'{sector}(RSI {rsi14:.0f})']
     if setup == 'breakout':
         flags.append('20/60일 고점권 돌파')
     elif setup == 'pullback_reversal':
         flags.append('눌림 후 MA20 회복')
+    elif setup == 'first_pullback_after_high':
+        flags.append('신고가 후 3~8% 첫 눌림 재상승')
     elif setup == 'trend_continuation':
         flags.append('MA200 위 정배열 추세 지속')
     if volume_ratio >= 1.6:
@@ -258,7 +290,7 @@ def _reason(setup: str, volume_ratio: float, value_ratio: float, ret20: float, d
         flags.append('52주 고점 근접: 저항 주의')
     if gap_ma20 > max_gap_ma20_pct / 100:
         flags.append('단기 과열 주의')
-    return ' + '.join(flags) if flags else '점수 기준 통과'
+    return ' + '.join(flags)
 
 
 def _failure_condition(setup: str) -> str:
@@ -266,6 +298,8 @@ def _failure_condition(setup: str) -> str:
         return '돌파 실패 후 전고점 아래 재이탈 또는 stop_loss 이탈'
     if setup == 'pullback_reversal':
         return 'MA20 재이탈 또는 반등 거래량 소멸'
+    if setup == 'first_pullback_after_high':
+        return 'MA20 재이탈 또는 신고가 재돌파 실패'
     if setup == 'trend_continuation':
         return 'MA20 또는 최근 저점 이탈'
     return '점수 하락 또는 stop_loss 이탈'
