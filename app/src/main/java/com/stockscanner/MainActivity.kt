@@ -354,7 +354,7 @@ private fun parseSectorSnapshot(json: JSONObject): List<KrSectorSnapshot> {
                     item.optInt("selected_count", 0),
                     item.optString("top_stock", ""),
                     item.optString("top_stock_code", ""),
-                    item.optDouble("top_score", 0.0),
+                    item.optDouble("top_score", 0.0)
                 )
             )
         }
