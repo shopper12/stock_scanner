@@ -40,10 +40,11 @@ jobs:
         run: |
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/stock-scanner-upload.jks"
 
-      - name: Patch release build metadata, update link, and sector UI
+      - name: Patch release build metadata and update link
         run: |
           python - <<'PY'
           from pathlib import Path
+
           gradle = Path('app/build.gradle.kts')
           text = gradle.read_text(encoding='utf-8')
           text = text.replace('versionCode = 3', 'versionCode = 5')
@@ -59,51 +60,6 @@ jobs:
           text = text.replace(
               "업데이트 방식: GitHub 수정 후 Android Build가 자동 실행됩니다. '업데이트/APK' 버튼을 누르고 최신 성공 빌드의 stock-scanner-debug-apk를 내려받아 설치하세요.",
               "업데이트 방식: GitHub 수정 후 Android Build가 자동 실행되고, 최신 서명 APK가 app-latest Release에 올라갑니다. '업데이트/APK' 버튼을 누른 뒤 stock-scanner-latest.apk를 받아 설치하세요.",
-          )
-          text = text.replace(
-              'item {\n                if (data == null) {\n                    InfoCard(if (loading) "Loading latest scan." else "No scan data loaded.")\n                } else {\n                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {\n                        Text("Scan: ${data.createdAtKst} / mode=${data.mode}")\n                        Text("Quote: ${data.quoteOk}/${data.total} (${formatPercent(data.quoteOkRate)})")\n                    }\n                }\n            }',
-              'item {\n                if (data == null) {\n                    InfoCard(if (loading) "Loading latest scan." else "No scan data loaded.")\n                } else {\n                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {\n                        Text("Scan: ${data.createdAtKst} / mode=${data.mode}")\n                        Text("Quote: ${data.quoteOk}/${data.total} (${formatPercent(data.quoteOkRate)})")\n                    }\n                }\n            }\n            if (data != null) {\n                item { SectorSummaryCard(data.sectors) }\n            }'
-          )
-          marker = '@Composable\nprivate fun HistorySummary(history: RecommendationHistory?) {'
-          if 'private fun SectorSummaryCard' not in text:
-              sector_card = '''@Composable
-private fun SectorSummaryCard(sectors: List<KrSectorSnapshot>) {
-    if (sectors.isEmpty()) {
-        InfoCard("오늘 강세 섹터: 스캔 후 표시됩니다.")
-        return
-    }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("오늘 강세 섹터", fontWeight = FontWeight.Bold)
-            sectors.take(5).forEach { s ->
-                Text("${s.sectorRank ?: \"-\"}위 ${s.sector}: 강도 ${formatNumber(s.sectorStrengthScore)} / 회전 ${formatNumber(s.marketRotationScore)} / 대표 ${s.topStock}(${s.topStockCode})")
-            }
-        }
-    }
-}
-
-'''
-              text = text.replace(marker, sector_card + marker)
-          text = text.replace(
-              'return StockSnapshot(json.optString("created_at_kst", "-"), json.optString("mode", "unknown"), quality.optDouble("kr_short_quote_ok_rate", 0.0), quality.optInt("kr_short_quote_ok", 0), quality.optInt("kr_short_total", stocks.size), stocks)',
-              'return StockSnapshot(json.optString("created_at_kst", "-"), json.optString("mode", "unknown"), quality.optDouble("kr_short_quote_ok_rate", 0.0), quality.optInt("kr_short_quote_ok", 0), quality.optInt("kr_short_total", stocks.size), stocks, parseSectorSnapshot(json))'
-          )
-          parse_marker = 'private fun parseHistory(json: JSONObject): RecommendationHistory {'
-          if 'private fun parseSectorSnapshot' not in text:
-              parse_fn = '''private fun parseSectorSnapshot(json: JSONObject): List<KrSectorSnapshot> {
-    val rows = json.optJSONArray("kr_sector_snapshot")
-    return buildList {
-        if (rows != null) for (i in 0 until rows.length()) rows.optJSONObject(i)?.let { item ->
-            add(KrSectorSnapshot(item.optString("sector", "기타"), if (item.has("sector_rank") && !item.isNull("sector_rank")) item.optInt("sector_rank") else null, item.optDouble("sector_strength_score", 0.0), item.optDouble("market_rotation_score", 0.0), item.optString("top_stock", ""), item.optString("top_stock_code", "")))
-        }
-    }
-}
-
-'''
-              text = text.replace(parse_marker, parse_fn + parse_marker)
-          text = text.replace(
-              'private data class StockSnapshot(val createdAtKst: String, val mode: String, val quoteOkRate: Double, val quoteOk: Int, val total: Int, val stocks: List<KrShortStock>)',
-              'private data class StockSnapshot(val createdAtKst: String, val mode: String, val quoteOkRate: Double, val quoteOk: Int, val total: Int, val stocks: List<KrShortStock>, val sectors: List<KrSectorSnapshot>)\nprivate data class KrSectorSnapshot(val sector: String, val sectorRank: Int?, val sectorStrengthScore: Double, val marketRotationScore: Double, val topStock: String, val topStockCode: String)'
           )
           main.write_text(text, encoding='utf-8')
           PY
