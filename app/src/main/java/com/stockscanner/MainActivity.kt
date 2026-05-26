@@ -42,7 +42,7 @@ private const val LATEST_URL = "$API_BASE_URL/api/latest"
 private const val RULES_URL = "$API_BASE_URL/api/kr-short-rules"
 private const val RUN_SCAN_URL = "$API_BASE_URL/api/run-scan"
 private const val HISTORY_URL = "$API_BASE_URL/api/recommendation-history"
-private const val UPDATE_PAGE_URL = "https://github.com/shopper12/stock_scanner/actions/workflows/android-build.yml"
+private const val UPDATE_PAGE_URL = "https://github.com/shopper12/stock_scanner/releases/tag/app-latest"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -135,7 +135,7 @@ private fun StockScannerScreen() {
                 }
             }
         }
-        item { InfoCard("업데이트 방식: GitHub 수정 후 Android Build가 자동 실행됩니다. '업데이트/APK' 버튼을 누르고 최신 성공 빌드의 stock-scanner-debug-apk를 내려받아 설치하세요.") }
+        item { InfoCard("업데이트 방식: GitHub 수정 후 Android Build가 자동 실행되고, 최신 서명 APK가 app-latest Release에 올라갑니다. '업데이트/APK' 버튼을 누른 뒤 stock-scanner-latest.apk를 받아 설치하세요.") }
         if (error != null) item { InfoCard("API error: $error") }
         if (message != null) item { InfoCard(message ?: "") }
         if (showHistory) {
@@ -168,10 +168,33 @@ private fun StockScannerScreen() {
                     }
                 }
             }
+            if (data != null) {
+                item { SectorSummaryCard(data.sectors) }
+            }
             if (data != null && data.stocks.isEmpty()) {
                 item { InfoCard("No KR short candidates.") }
             } else if (data != null) {
                 items(data.stocks) { stock -> StockCard(stock) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectorSummaryCard(sectors: List<KrSectorSnapshot>) {
+    if (sectors.isEmpty()) {
+        InfoCard("선정 섹터 요약: 스캔 후 표시됩니다.")
+        return
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("선정 섹터 요약", fontWeight = FontWeight.Bold)
+            Text("섹터는 참고용입니다. 현재 추천 정렬은 순수 score 기준입니다.", style = MaterialTheme.typography.bodySmall)
+            sectors.take(5).forEach { s ->
+                val rankText = s.sectorRank?.takeIf { it > 0 }?.let { "${it}위 " } ?: ""
+                val strengthText = if (s.sectorStrengthScore > 0.0) " / 강도 ${formatNumber(s.sectorStrengthScore)}" else ""
+                val rotationText = if (s.marketRotationScore > 0.0) " / 회전 ${formatNumber(s.marketRotationScore)}" else ""
+                Text("$rankText${s.sector}: ${s.selectedCount}개 / 대표 ${s.topStock}(${s.topStockCode}) / 최고점수 ${formatNumber(s.topScore)}$strengthText$rotationText")
             }
         }
     }
@@ -315,7 +338,27 @@ private fun parseSnapshot(json: JSONObject): StockSnapshot {
             add(KrShortStock(item.optString("code", ""), item.optString("name", ""), item.optString("sector", "기타"), item.optString("strategy_type", ""), item.optDouble("current_price", 0.0), item.optString("price_basis", "unknown"), item.optString("price_timestamp", "unknown"), item.optString("quote_source", item.optString("data_source", "unknown")), item.optDouble("score", 0.0), item.optDouble("entry", 0.0), item.optDouble("stop_loss", 0.0), item.optDouble("target1", 0.0), item.optDouble("target2", 0.0), item.optDouble("risk_pct", 0.0), item.optString("reason", ""), item.optString("failure_condition", "")))
         }
     }
-    return StockSnapshot(json.optString("created_at_kst", "-"), json.optString("mode", "unknown"), quality.optDouble("kr_short_quote_ok_rate", 0.0), quality.optInt("kr_short_quote_ok", 0), quality.optInt("kr_short_total", stocks.size), stocks)
+    return StockSnapshot(json.optString("created_at_kst", "-"), json.optString("mode", "unknown"), quality.optDouble("kr_short_quote_ok_rate", 0.0), quality.optInt("kr_short_quote_ok", 0), quality.optInt("kr_short_total", stocks.size), stocks, parseSectorSnapshot(json))
+}
+
+private fun parseSectorSnapshot(json: JSONObject): List<KrSectorSnapshot> {
+    val rows = json.optJSONArray("kr_sector_snapshot")
+    return buildList {
+        if (rows != null) for (i in 0 until rows.length()) rows.optJSONObject(i)?.let { item ->
+            add(
+                KrSectorSnapshot(
+                    item.optString("sector", "기타"),
+                    if (item.has("sector_rank") && !item.isNull("sector_rank")) item.optInt("sector_rank") else null,
+                    item.optDouble("sector_strength_score", 0.0),
+                    item.optDouble("market_rotation_score", 0.0),
+                    item.optInt("selected_count", 0),
+                    item.optString("top_stock", ""),
+                    item.optString("top_stock_code", ""),
+                    item.optDouble("top_score", 0.0),
+                )
+            )
+        }
+    }
 }
 
 private fun parseHistory(json: JSONObject): RecommendationHistory {
@@ -333,7 +376,8 @@ private fun JSONObject.optNullableDouble(key: String): Double? = if (has(key) &&
 private fun parseRules(json: JSONObject): KrShortRules = KrShortRules(json.optInt("version", 1), json.optDouble("score_threshold", 62.0), json.optDouble("min_risk_pct", 1.5), json.optDouble("max_risk_pct", 12.0), json.optDouble("max_entry_gap_pct", 3.5), json.optDouble("max_gap_ma20_pct", 12.0), json.optDouble("surge_threshold_pct", 15.0), json.optInt("hold_days", 10))
 private fun KrShortRules.toJson(): JSONObject = JSONObject().apply { put("rules", JSONObject().apply { put("score_threshold", scoreThreshold); put("min_risk_pct", minRiskPct); put("max_risk_pct", maxRiskPct); put("max_entry_gap_pct", maxEntryGapPct); put("max_gap_ma20_pct", maxGapMa20Pct); put("surge_threshold_pct", surgeThresholdPct); put("hold_days", holdDays) }) }
 
-private data class StockSnapshot(val createdAtKst: String, val mode: String, val quoteOkRate: Double, val quoteOk: Int, val total: Int, val stocks: List<KrShortStock>)
+private data class StockSnapshot(val createdAtKst: String, val mode: String, val quoteOkRate: Double, val quoteOk: Int, val total: Int, val stocks: List<KrShortStock>, val sectors: List<KrSectorSnapshot>)
+private data class KrSectorSnapshot(val sector: String, val sectorRank: Int?, val sectorStrengthScore: Double, val marketRotationScore: Double, val selectedCount: Int, val topStock: String, val topStockCode: String, val topScore: Double)
 private data class KrShortStock(val code: String, val name: String, val sector: String, val strategyType: String, val currentPrice: Double, val priceBasis: String, val priceTimestamp: String, val quoteSource: String, val score: Double, val entry: Double, val stopLoss: Double, val target1: Double, val target2: Double, val riskPct: Double, val reason: String, val failureCondition: String)
 private data class KrShortRules(val version: Int, val scoreThreshold: Double, val minRiskPct: Double, val maxRiskPct: Double, val maxEntryGapPct: Double, val maxGapMa20Pct: Double, val surgeThresholdPct: Double, val holdDays: Int)
 private data class RunScanResult(val krShortCount: Int)
