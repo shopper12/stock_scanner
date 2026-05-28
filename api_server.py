@@ -196,7 +196,7 @@ def _update_rules(data: dict) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'StockScannerAPI/1.4'
+    server_version = 'StockScannerAPI/1.5'
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
@@ -204,7 +204,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 'ok': True,
                 'service': 'stock_scanner_api',
-                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/kr-sector-snapshot', '/api/kr-backtest'],
+                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/kr-sector-snapshot', '/api/kr-backtest', '/api/kr-stock-strategy'],
                 'write_enabled': _write_enabled(),
                 'latest_report_exists': LATEST_PATH.exists(),
                 'quote_quality_report_exists': QUOTE_QUALITY_PATH.exists(),
@@ -246,7 +246,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
-        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest'}:
+        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest', '/api/kr-stock-strategy'}:
             self._send_json(404, {'ok': False, 'error': 'not_found', 'path': path})
             return
         if not _write_enabled():
@@ -277,6 +277,12 @@ class Handler(BaseHTTPRequestHandler):
                 max_symbols = int(body.get('max_symbols') or os.getenv('KR_BACKTEST_MAX_SYMBOLS', '30'))
                 result = evolve_kr_short_rules(write=bool(body.get('write', False)), max_symbols=max_symbols, ai_review=False)
                 self._send_json(200, {'ok': True, **result})
+                return
+            if path == '/api/kr-stock-strategy':
+                from strategies.kr_stock_lookup import analyze_kr_stock_strategy
+                body = self._read_body_json()
+                query = str(body.get('query') or body.get('code') or body.get('name') or '').strip()
+                self._send_json(200, analyze_kr_stock_strategy(query))
                 return
         except Exception as exc:
             self._send_json(400, {'ok': False, 'error': exc.__class__.__name__, 'message': str(exc)})
