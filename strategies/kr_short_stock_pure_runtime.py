@@ -49,6 +49,9 @@ def _select_top_n(ranked: pd.DataFrame, max_items: int) -> pd.DataFrame:
 
 
 def _score_pure(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, setup: str, max_gap_ma20_pct: float, sector_strength: float, sector_rank: int, market_rotation: float, change_today: float) -> float:
+    if setup == 'watch':
+        return 0.0
+
     score = 50.0
     score += 12.0 if price > ma200 else -12.0
     score += 8.0 if price > ma60 else -4.0
@@ -95,8 +98,6 @@ def _score_pure(price: float, ma20: float, ma60: float, ma120: float, ma200: flo
         score += 4.0
     elif setup == 'first_pullback_after_high':
         score += 8.0
-    elif setup == 'watch' and price > ma20 and ret20 > 0 and value_ratio >= 1.2:
-        score += 3.0
     if gap_ma20 > max_gap_ma20_pct / 100.0:
         score -= 10.0
     if ret5 < -0.06:
