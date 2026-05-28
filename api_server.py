@@ -14,6 +14,7 @@ REPORT_DIR = ROOT_DIR / 'reports'
 LATEST_PATH = REPORT_DIR / 'latest.json'
 QUOTE_QUALITY_PATH = REPORT_DIR / 'quote_quality_latest.json'
 RECOMMENDATION_HISTORY_PATH = REPORT_DIR / 'recommendation_history.json'
+BACKTEST_REPORT_PATH = REPORT_DIR / 'kr_short_evolution_latest.json'
 
 RULE_DESCRIPTIONS = {
     'score_threshold': '한국 단기 후보 최소 점수. 이 값보다 낮으면 후보에서 제외됩니다.',
@@ -139,6 +140,13 @@ def _rules_payload() -> dict:
     }
 
 
+def _backtest_payload() -> tuple[int, dict]:
+    status, data = _read_json(BACKTEST_REPORT_PATH)
+    if status == 200:
+        data.setdefault('ok', True)
+    return status, data
+
+
 def _auth_ok(handler: BaseHTTPRequestHandler) -> bool:
     expected = os.getenv('ADMIN_TOKEN', '').strip()
     if not expected:
@@ -188,7 +196,7 @@ def _update_rules(data: dict) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'StockScannerAPI/1.3'
+    server_version = 'StockScannerAPI/1.4'
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
@@ -196,11 +204,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 'ok': True,
                 'service': 'stock_scanner_api',
-                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/kr-sector-snapshot'],
+                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/kr-sector-snapshot', '/api/kr-backtest'],
                 'write_enabled': _write_enabled(),
                 'latest_report_exists': LATEST_PATH.exists(),
                 'quote_quality_report_exists': QUOTE_QUALITY_PATH.exists(),
                 'recommendation_history_exists': RECOMMENDATION_HISTORY_PATH.exists(),
+                'backtest_report_exists': BACKTEST_REPORT_PATH.exists(),
             })
             return
         if path == '/api/latest':
@@ -225,6 +234,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/kr-short-rules':
             self._send_json(200, _rules_payload())
             return
+        if path == '/api/kr-backtest':
+            status, data = _backtest_payload()
+            self._send_json(status, data)
+            return
         if path == '/api/recommendation-history':
             status, data = _read_json(RECOMMENDATION_HISTORY_PATH)
             self._send_json(status, data)
@@ -233,7 +246,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
-        if path not in {'/api/kr-short-rules', '/api/run-scan'}:
+        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest'}:
             self._send_json(404, {'ok': False, 'error': 'not_found', 'path': path})
             return
         if not _write_enabled():
@@ -257,6 +270,13 @@ class Handler(BaseHTTPRequestHandler):
                     'kr_short_count': len(payload.get('kr_short_stocks', [])),
                     'data_quality': payload.get('data_quality', {}),
                 })
+                return
+            if path == '/api/run-backtest':
+                from backtest.kr_short_evolution import evolve_kr_short_rules
+                body = self._read_body_json()
+                max_symbols = int(body.get('max_symbols') or os.getenv('KR_BACKTEST_MAX_SYMBOLS', '30'))
+                result = evolve_kr_short_rules(write=bool(body.get('write', False)), max_symbols=max_symbols, ai_review=False)
+                self._send_json(200, {'ok': True, **result})
                 return
         except Exception as exc:
             self._send_json(400, {'ok': False, 'error': exc.__class__.__name__, 'message': str(exc)})
