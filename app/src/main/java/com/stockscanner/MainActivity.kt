@@ -44,6 +44,7 @@ private const val RUN_SCAN_URL = "$API_BASE_URL/api/run-scan"
 private const val HISTORY_URL = "$API_BASE_URL/api/recommendation-history"
 private const val BACKTEST_URL = "$API_BASE_URL/api/kr-backtest"
 private const val RUN_BACKTEST_URL = "$API_BASE_URL/api/run-backtest"
+private const val STOCK_STRATEGY_URL = "$API_BASE_URL/api/kr-stock-strategy"
 private const val UPDATE_PAGE_URL = "https://github.com/shopper12/stock_scanner/releases/tag/app-latest"
 
 class MainActivity : ComponentActivity() {
@@ -59,15 +60,20 @@ private fun StockScannerScreen() {
     var loading by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var backtesting by remember { mutableStateOf(false) }
+    var searching by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var snapshot by remember { mutableStateOf<StockSnapshot?>(null) }
     var rules by remember { mutableStateOf<KrShortRules?>(null) }
     var history by remember { mutableStateOf<RecommendationHistory?>(null) }
     var backtest by remember { mutableStateOf<KrBacktestReport?>(null) }
+    var stockQuery by remember { mutableStateOf("") }
+    var stockStrategy by remember { mutableStateOf<KrStockStrategy?>(null) }
     var showHistory by remember { mutableStateOf(false) }
     var editKey by remember { mutableStateOf(readServerEditKey(context)) }
     val scope = rememberCoroutineScope()
+
+    fun busy(): Boolean = loading || saving || backtesting || searching
 
     fun persistEditKey(value: String) {
         saveServerEditKey(context, value)
@@ -137,6 +143,27 @@ private fun StockScannerScreen() {
         backtesting = false
     }
 
+    suspend fun searchStockStrategy() {
+        val key = editKey.trim()
+        val query = stockQuery.trim()
+        if (key.isBlank()) {
+            error = "서버 편집키를 저장해야 종목검색을 실행할 수 있습니다."
+            return
+        }
+        if (query.isBlank()) {
+            error = "종목명 또는 종목코드를 입력하세요. 예: 삼성전자 또는 005930"
+            return
+        }
+        searching = true
+        error = null
+        message = null
+        runCatching {
+            stockStrategy = fetchStockStrategy(query, key)
+            message = "종목 분석 완료: ${stockStrategy?.name}(${stockStrategy?.code}) ${stockStrategy?.action}"
+        }.onFailure { error = it.message ?: it::class.java.simpleName }
+        searching = false
+    }
+
     LaunchedEffect(Unit) { refresh() }
 
     LazyColumn(
@@ -147,11 +174,11 @@ private fun StockScannerScreen() {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { scope.launch { refresh() } }, enabled = !loading && !saving && !backtesting) { Text(if (loading) "Loading" else "Refresh") }
-                    Button(onClick = { scope.launch { saveRules() } }, enabled = rules != null && !loading && !saving && !backtesting) { Text(if (saving) "Saving" else "조건 저장+스캔") }
+                    Button(onClick = { scope.launch { refresh() } }, enabled = !busy()) { Text(if (loading) "Loading" else "Refresh") }
+                    Button(onClick = { scope.launch { saveRules() } }, enabled = rules != null && !busy()) { Text(if (saving) "Saving" else "조건 저장+스캔") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { scope.launch { runBacktestNow() } }, enabled = !loading && !saving && !backtesting) { Text(if (backtesting) "검증 중" else "백테스트") }
+                    Button(onClick = { scope.launch { runBacktestNow() } }, enabled = !busy()) { Text(if (backtesting) "검증 중" else "백테스트") }
                     Button(onClick = { showHistory = !showHistory }) { Text(if (showHistory) "현재 후보" else "추천 이력") }
                     Button(onClick = { openUpdatePage() }) { Text("업데이트/APK") }
                 }
@@ -179,6 +206,8 @@ private fun StockScannerScreen() {
                     onRulesChange = { rules = it }
                 )
             }
+            item { StockLookupCard(stockQuery, searching, { stockQuery = it }, { scope.launch { searchStockStrategy() } }) }
+            if (stockStrategy != null) item { StockStrategyCard(stockStrategy!!) }
             item { BacktestSummaryCard(backtest) }
             val data = snapshot
             item {
@@ -199,6 +228,41 @@ private fun StockScannerScreen() {
             } else if (data != null) {
                 items(data.stocks) { stock -> StockCard(stock) }
             }
+        }
+    }
+}
+
+@Composable
+private fun StockLookupCard(query: String, searching: Boolean, onQuery: (String) -> Unit, onSearch: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("종목 직접 검색", fontWeight = FontWeight.Bold)
+            Text("종목명 또는 6자리 코드를 입력하면 해당 종목만 별도 매매전략을 계산합니다.", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQuery,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("예: 삼성전자 / 005930") },
+                singleLine = true
+            )
+            Button(onClick = onSearch, enabled = !searching) { Text(if (searching) "분석 중" else "종목 분석") }
+        }
+    }
+}
+
+@Composable
+private fun StockStrategyCard(strategy: KrStockStrategy) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("${strategy.name}(${strategy.code}) | ${strategy.sector}/${strategy.setup}", fontWeight = FontWeight.Bold)
+            Text("판단: ${strategy.action} / 점수 ${formatNumber(strategy.score)} 기준 ${formatNumber(strategy.threshold)}")
+            Text("이유: ${strategy.actionReason}")
+            Text("현재가 ${formatPrice(strategy.currentPrice)} (${strategy.priceBasis}) / ${strategy.priceTimestamp}")
+            Text("진입 ${formatPrice(strategy.entry)} / 손절 ${formatPrice(strategy.stopLoss)} / 위험 ${formatNumber(strategy.riskPct)}%")
+            Text("목표 ${formatPrice(strategy.target1)} → ${formatPrice(strategy.target2)} / 포지션 ${formatPrice(strategy.positionSizeKrw)}원")
+            Text("지표: RSI ${formatNumber(strategy.rsi14)} / MA20 괴리 ${formatSignedPercent(strategy.gapMa20Pct)} / 20일 모멘텀 ${formatSignedPercent(strategy.momentum20dPct)}")
+            Text("근거: ${strategy.reason}")
+            Text("무효화: ${strategy.failureCondition}")
         }
     }
 }
@@ -280,7 +344,7 @@ private fun RulesEditor(
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("한국 단기 종목 검색 조건", fontWeight = FontWeight.Bold)
-            Text("서버 편집키는 한 번만 저장하면 됩니다. 이후에는 조건 저장+스캔 버튼만 누르면 됩니다.")
+            Text("서버 편집키는 한 번만 저장하면 됩니다. 이후에는 조건 저장+스캔/백테스트/종목검색을 실행할 수 있습니다.")
             OutlinedTextField(
                 value = editKey,
                 onValueChange = onEditKeyChange,
@@ -293,7 +357,7 @@ private fun RulesEditor(
                 Button(onClick = onPersistEditKey) { Text("편집키 저장") }
                 Button(onClick = onClearEditKey) { Text("편집키 삭제") }
             }
-            Text(if (editKey.isBlank()) "편집키 미저장: 조건 저장은 실패합니다." else "편집키 저장됨: 조건 저장+스캔 가능")
+            Text(if (editKey.isBlank()) "편집키 미저장: 조건 저장/백테스트/종목검색은 실패합니다." else "편집키 저장됨: 조건 저장+스캔/백테스트/종목검색 가능")
             if (rules == null) {
                 Text("조건 로딩 중 또는 조건 API 미배포 상태")
                 return@Column
@@ -346,12 +410,13 @@ private suspend fun fetchBacktestOrNull(): KrBacktestReport? = withContext(Dispa
 private suspend fun postRules(rules: KrShortRules, editKey: String): KrShortRules = withContext(Dispatchers.IO) { parseRules(JSONObject(httpJson("POST", RULES_URL, rules.toJson().toString(), editKey)).optJSONObject("rules") ?: JSONObject()) }
 private suspend fun runScan(editKey: String): RunScanResult = withContext(Dispatchers.IO) { RunScanResult(JSONObject(httpJson("POST", RUN_SCAN_URL, "{}", editKey)).optInt("kr_short_count", 0)) }
 private suspend fun runBacktest(editKey: String): KrBacktestReport = withContext(Dispatchers.IO) { parseBacktest(JSONObject(httpJson("POST", RUN_BACKTEST_URL, "{\"max_symbols\":30,\"write\":false}", editKey))) }
+private suspend fun fetchStockStrategy(query: String, editKey: String): KrStockStrategy = withContext(Dispatchers.IO) { parseStockStrategy(JSONObject(httpJson("POST", STOCK_STRATEGY_URL, JSONObject().put("query", query).toString(), editKey))) }
 
 private fun httpJson(method: String, url: String, requestBody: String?, editKey: String?): String {
     val connection = (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = method
         connectTimeout = 15000
-        readTimeout = if (url == RUN_SCAN_URL || url == RUN_BACKTEST_URL) 120000 else 15000
+        readTimeout = if (url == RUN_SCAN_URL || url == RUN_BACKTEST_URL || url == STOCK_STRATEGY_URL) 120000 else 15000
         setRequestProperty("Accept", "application/json")
         setRequestProperty("User-Agent", "StockScanner-Android")
         if (method == "POST") {
@@ -381,6 +446,34 @@ private fun parseSnapshot(json: JSONObject): StockSnapshot {
         }
     }
     return StockSnapshot(json.optString("created_at_kst", "-"), json.optString("mode", "unknown"), quality.optDouble("kr_short_quote_ok_rate", 0.0), quality.optInt("kr_short_quote_ok", 0), quality.optInt("kr_short_total", stocks.size), stocks, parseSectorSnapshot(json))
+}
+
+private fun parseStockStrategy(json: JSONObject): KrStockStrategy {
+    val metrics = json.optJSONObject("metrics") ?: JSONObject()
+    return KrStockStrategy(
+        json.optString("code", ""),
+        json.optString("name", ""),
+        json.optString("sector", "기타"),
+        json.optString("action", "관망"),
+        json.optString("action_reason", ""),
+        json.optDouble("score", 0.0),
+        json.optDouble("threshold", 0.0),
+        json.optString("setup", ""),
+        json.optDouble("current_price", 0.0),
+        json.optString("price_basis", "unknown"),
+        json.optString("price_timestamp", "unknown"),
+        json.optDouble("entry", 0.0),
+        json.optDouble("stop_loss", 0.0),
+        json.optDouble("target1", 0.0),
+        json.optDouble("target2", 0.0),
+        json.optDouble("risk_pct", 0.0),
+        json.optDouble("position_size_krw", 0.0),
+        json.optString("reason", ""),
+        json.optString("failure_condition", ""),
+        metrics.optDouble("rsi14", 0.0),
+        metrics.optDouble("gap_ma20_pct", 0.0),
+        metrics.optDouble("momentum_20d_pct", 0.0)
+    )
 }
 
 private fun parseBacktest(json: JSONObject): KrBacktestReport {
@@ -428,6 +521,7 @@ private fun KrShortRules.toJson(): JSONObject = JSONObject().apply { put("rules"
 
 private data class StockSnapshot(val createdAtKst: String, val mode: String, val quoteOkRate: Double, val quoteOk: Int, val total: Int, val stocks: List<KrShortStock>, val sectors: List<KrSectorSnapshot>)
 private data class KrSectorSnapshot(val sector: String, val sectorRank: Int?, val sectorStrengthScore: Double, val marketRotationScore: Double, val selectedCount: Int, val topStock: String, val topStockCode: String, val topScore: Double)
+private data class KrStockStrategy(val code: String, val name: String, val sector: String, val action: String, val actionReason: String, val score: Double, val threshold: Double, val setup: String, val currentPrice: Double, val priceBasis: String, val priceTimestamp: String, val entry: Double, val stopLoss: Double, val target1: Double, val target2: Double, val riskPct: Double, val positionSizeKrw: Double, val reason: String, val failureCondition: String, val rsi14: Double, val gapMa20Pct: Double, val momentum20dPct: Double)
 private data class KrBacktestReport(val createdAtKst: String, val accepted: Boolean, val improvement: Double, val baseSummary: KrBacktestSummary, val bestSummary: KrBacktestSummary)
 private data class KrBacktestSummary(val trades: Int, val avgReturnPct: Double, val winRate: Double, val profitFactor: Double, val stopRate: Double, val targetRate: Double)
 private data class KrShortStock(val code: String, val name: String, val sector: String, val strategyType: String, val currentPrice: Double, val priceBasis: String, val priceTimestamp: String, val quoteSource: String, val score: Double, val entry: Double, val stopLoss: Double, val target1: Double, val target2: Double, val riskPct: Double, val reason: String, val failureCondition: String)
