@@ -118,6 +118,8 @@ def _backtest_one_symbol(hist: pd.DataFrame, row: dict, rules: KrShortRules) -> 
         change_today = float(row.get('change_pct_today') or 0.0)
 
         setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w, high252)
+        if setup == 'watch':
+            continue
         score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct, sector_strength, sector_rank, market_rotation, change_today)
         if score < rules.score_threshold:
             continue
@@ -249,12 +251,20 @@ def _fitness(summary: dict) -> float:
     surge_precision = summary.get('surge_precision', 0.0)
     profit_factor = min(summary.get('profit_factor', 0.0), 3.0)
     stop_rate = summary.get('stop_rate', 1.0)
-    return sample_penalty * (avg_return * 0.35 + surge_precision * 8.0 + profit_factor * 1.2 - stop_rate * 2.0)
+    win_rate = summary.get('win_rate', 0.0)
+    return sample_penalty * (
+        avg_return * 0.35
+        + surge_precision * 8.0
+        + profit_factor * 1.2
+        - stop_rate * 2.0
+        + (win_rate - 0.50) * 10.0
+    )
 
 
 def _passes_guardrails(rules: KrShortRules, summary: dict) -> bool:
     return (
         summary.get('trades', 0) >= rules.min_backtest_trades
+        and summary.get('win_rate', 0.0) >= 0.45
         and summary.get('surge_precision', 0.0) >= rules.min_surge_precision
         and summary.get('avg_return_pct', 0.0) >= rules.min_avg_return_pct
         and summary.get('profit_factor', 0.0) >= rules.min_profit_factor
