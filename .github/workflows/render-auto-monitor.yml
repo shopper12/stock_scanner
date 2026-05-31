@@ -52,4 +52,6 @@ jobs:
             reports/render_auto_monitor_latest.json
             reports/recommendation_performance_latest.json
             reports/missed_surge_latest.json
+            reports/missed_surge_audit_latest.json
+            reports/kr_short_evolution_latest.json
           if-no-files-found: ignore
