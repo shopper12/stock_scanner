@@ -14,6 +14,7 @@ REPORT_DIR = ROOT_DIR / 'reports'
 LATEST_PATH = REPORT_DIR / 'latest.json'
 QUOTE_QUALITY_PATH = REPORT_DIR / 'quote_quality_latest.json'
 RECOMMENDATION_HISTORY_PATH = REPORT_DIR / 'recommendation_history.json'
+RECOMMENDATION_PERFORMANCE_PATH = REPORT_DIR / 'recommendation_performance_latest.json'
 BACKTEST_REPORT_PATH = REPORT_DIR / 'kr_short_evolution_latest.json'
 
 RULE_DESCRIPTIONS = {
@@ -29,6 +30,7 @@ RULE_DESCRIPTIONS = {
     'min_surge_precision': '급등 포착 전략의 최소 정밀도 기준입니다.',
     'min_avg_return_pct': '전략 채택에 필요한 최소 평균 수익률입니다.',
     'min_profit_factor': '전략 채택에 필요한 최소 profit factor입니다.',
+    'min_win_rate': '전략 채택에 필요한 최소 승률입니다.',
     'min_improvement_score': '자동 규칙 개선안 채택을 위한 최소 개선 점수입니다.',
 }
 
@@ -45,6 +47,7 @@ EDITABLE_RULE_FIELDS = {
     'min_surge_precision': float,
     'min_avg_return_pct': float,
     'min_profit_factor': float,
+    'min_win_rate': float,
     'min_improvement_score': float,
 }
 
@@ -61,6 +64,7 @@ RULE_BOUNDS = {
     'min_surge_precision': (0.0, 1.0),
     'min_avg_return_pct': (-20.0, 50.0),
     'min_profit_factor': (0.0, 10.0),
+    'min_win_rate': (0.0, 1.0),
     'min_improvement_score': (0.0, 10.0),
 }
 
@@ -147,6 +151,13 @@ def _backtest_payload() -> tuple[int, dict]:
     return status, data
 
 
+def _performance_payload() -> tuple[int, dict]:
+    status, data = _read_json(RECOMMENDATION_PERFORMANCE_PATH)
+    if status == 200:
+        data.setdefault('ok', True)
+    return status, data
+
+
 def _auth_ok(handler: BaseHTTPRequestHandler) -> bool:
     expected = os.getenv('ADMIN_TOKEN', '').strip()
     if not expected:
@@ -195,8 +206,14 @@ def _update_rules(data: dict) -> dict:
     return {'ok': True, 'changed': changed, 'rules': asdict(rules)}
 
 
+def _bool_value(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'StockScannerAPI/1.5'
+    server_version = 'StockScannerAPI/1.6'
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
@@ -204,11 +221,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 'ok': True,
                 'service': 'stock_scanner_api',
-                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/kr-sector-snapshot', '/api/kr-backtest', '/api/kr-stock-strategy'],
+                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/recommendation-performance', '/api/update-recommendation-pnl', '/api/kr-sector-snapshot', '/api/kr-backtest', '/api/kr-stock-strategy'],
                 'write_enabled': _write_enabled(),
                 'latest_report_exists': LATEST_PATH.exists(),
                 'quote_quality_report_exists': QUOTE_QUALITY_PATH.exists(),
                 'recommendation_history_exists': RECOMMENDATION_HISTORY_PATH.exists(),
+                'recommendation_performance_exists': RECOMMENDATION_PERFORMANCE_PATH.exists(),
                 'backtest_report_exists': BACKTEST_REPORT_PATH.exists(),
             })
             return
@@ -242,11 +260,15 @@ class Handler(BaseHTTPRequestHandler):
             status, data = _read_json(RECOMMENDATION_HISTORY_PATH)
             self._send_json(status, data)
             return
+        if path == '/api/recommendation-performance':
+            status, data = _performance_payload()
+            self._send_json(status, data)
+            return
         self._send_json(404, {'ok': False, 'error': 'not_found', 'path': path})
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
-        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest', '/api/kr-stock-strategy'}:
+        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest', '/api/kr-stock-strategy', '/api/update-recommendation-pnl'}:
             self._send_json(404, {'ok': False, 'error': 'not_found', 'path': path})
             return
         if not _write_enabled():
@@ -271,11 +293,16 @@ class Handler(BaseHTTPRequestHandler):
                     'data_quality': payload.get('data_quality', {}),
                 })
                 return
+            if path == '/api/update-recommendation-pnl':
+                from tools.update_recommendation_pnl import update_recommendation_pnl
+                result = update_recommendation_pnl()
+                self._send_json(200, {'ok': True, **result})
+                return
             if path == '/api/run-backtest':
                 from backtest.kr_short_evolution import evolve_kr_short_rules
                 body = self._read_body_json()
                 max_symbols = int(body.get('max_symbols') or os.getenv('KR_BACKTEST_MAX_SYMBOLS', '30'))
-                result = evolve_kr_short_rules(write=bool(body.get('write', False)), max_symbols=max_symbols, ai_review=False)
+                result = evolve_kr_short_rules(write=_bool_value(body.get('write', False)), max_symbols=max_symbols, ai_review=False)
                 self._send_json(200, {'ok': True, **result})
                 return
             if path == '/api/kr-stock-strategy':
