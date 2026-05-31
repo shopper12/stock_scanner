@@ -22,7 +22,6 @@ permissions:
 
 env:
   STOCK_SCANNER_API_BASE_URL: ${{ secrets.STOCK_SCANNER_API_BASE_URL }}
-  ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
   TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
   AUTO_EVOLVE_WRITE: ${{ github.event.inputs.write_rules || 'true' }}
@@ -52,4 +51,5 @@ jobs:
           path: |
             reports/render_auto_monitor_latest.json
             reports/recommendation_performance_latest.json
+            reports/missed_surge_latest.json
           if-no-files-found: ignore
