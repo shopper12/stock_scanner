@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
 import math
+import re
 from datetime import datetime
+from difflib import SequenceMatcher
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -13,6 +17,84 @@ from data.realtime_price import try_kr_realtime_quote
 from strategies.kr_short_rules import load_kr_short_rules
 from strategies.kr_short_stock import _entry, _failure_condition, _format_date, _max_position_pct, _prepare_history, _ratio, _reason, _rsi14, _score, _setup, _stop
 from strategies.metrics import momentum
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+REPORT_DIR = ROOT_DIR / 'reports'
+
+KR_STOCK_ALIASES = {
+    '삼전': '005930',
+    '삼성전자': '005930',
+    '삼성전자보통주': '005930',
+    '삼전우': '005935',
+    '삼성전자우': '005935',
+    '삼성전자우선주': '005935',
+    '하닉': '000660',
+    '하이닉스': '000660',
+    'sk하이닉스': '000660',
+    '에스케이하이닉스': '000660',
+    '현차': '005380',
+    '현대차': '005380',
+    '현대자동차': '005380',
+    '기아차': '000270',
+    '기아': '000270',
+    '엘지': '003550',
+    'lg': '003550',
+    'lg지주': '003550',
+    '엘지지주': '003550',
+    'lg전자': '066570',
+    '엘지전자': '066570',
+    'lg화학': '051910',
+    '엘지화학': '051910',
+    '엘화': '051910',
+    'lg에너지솔루션': '373220',
+    '엘지에너지솔루션': '373220',
+    '엔솔': '373220',
+    '네이버': '035420',
+    'naver': '035420',
+    '카카오': '035720',
+    '포스코홀딩스': '005490',
+    'posco홀딩스': '005490',
+    '포홀': '005490',
+    '포스코': '005490',
+    '삼성바이오': '207940',
+    '삼성바이오로직스': '207940',
+    '셀트리온': '068270',
+    '한화에어로': '012450',
+    '한화에어로스페이스': '012450',
+    '한에': '012450',
+    '두산에너빌리티': '034020',
+    '두산중공업': '034020',
+    'hd현대중공업': '329180',
+    '현대중공업': '329180',
+    '한화오션': '042660',
+    '대우조선해양': '042660',
+    '삼성중공업': '010140',
+    '삼중': '010140',
+    'sk이노베이션': '096770',
+    '에스케이이노베이션': '096770',
+    'sk스퀘어': '402340',
+    '에스케이스퀘어': '402340',
+    'sk텔레콤': '017670',
+    '에스케이텔레콤': '017670',
+    'kt': '030200',
+    '케이티': '030200',
+    'kb금융': '105560',
+    '국민은행': '105560',
+    '신한지주': '055550',
+    '신한금융': '055550',
+    '하나금융': '086790',
+    '하나금융지주': '086790',
+    '우리금융': '316140',
+    '우리금융지주': '316140',
+    '삼성sdi': '006400',
+    '삼성에스디아이': '006400',
+    '에코프로비엠': '247540',
+    '에코비엠': '247540',
+    '에코프로': '086520',
+    '알테오젠': '196170',
+    '리가켐바이오': '141080',
+    '레고켐바이오': '141080',
+}
 
 
 def analyze_kr_stock_strategy(query: str) -> dict:
@@ -87,6 +169,7 @@ def analyze_kr_stock_strategy(query: str) -> dict:
     return {
         'ok': True,
         'query': query,
+        'resolved_by': target.get('resolved_by', 'unknown'),
         'created_at_kst': datetime.now(ZoneInfo(settings.timezone)).strftime('%Y-%m-%d %H:%M:%S %Z'),
         'code': code,
         'name': target['name'],
@@ -139,20 +222,77 @@ def resolve_kr_stock_query(query: str) -> dict:
     if q.isdigit():
         code = q.zfill(6)
         name, market = _ticker_name_market(code)
-        return {'code': code, 'name': name or code, 'market': market, 'sector': _infer_sector(code, name or '')}
+        return {'code': code, 'name': name or code, 'market': market, 'sector': _infer_sector(code, name or ''), 'resolved_by': 'code'}
 
-    q_norm = q.replace(' ', '').lower()
+    q_norm = _normalise_name(q)
+    alias_code = KR_STOCK_ALIASES.get(q_norm)
+    if alias_code:
+        name, market = _ticker_name_market(alias_code)
+        return {'code': alias_code, 'name': name or alias_code, 'market': market, 'sector': _infer_sector(alias_code, name or ''), 'resolved_by': 'alias'}
+
     candidates = _ticker_candidates()
-    exact = [x for x in candidates if x['name'].replace(' ', '').lower() == q_norm]
-    partial = [x for x in candidates if q_norm in x['name'].replace(' ', '').lower()]
-    matches = exact or partial
+    if not candidates:
+        raise ValueError(f'no KR stock candidates available for query={query}')
+
+    for item in candidates:
+        item['norm_name'] = _normalise_name(item.get('name', ''))
+        item['norm_code'] = str(item.get('code', '')).zfill(6)
+
+    exact = [x for x in candidates if x['norm_name'] == q_norm]
+    partial = [x for x in candidates if q_norm and q_norm in x['norm_name']]
+    reverse_partial = [x for x in candidates if x['norm_name'] and x['norm_name'] in q_norm]
+    fuzzy = _fuzzy_matches(q_norm, candidates) if not (exact or partial or reverse_partial) else []
+    matches = exact or partial or reverse_partial or fuzzy
     if not matches:
-        raise ValueError(f'no KR stock match for query={query}')
-    if len(matches) > 1:
-        matches = sorted(matches, key=lambda x: (0 if x['name'].replace(' ', '').lower() == q_norm else 1, x['market'], x['code']))
-    item = matches[0]
-    item['sector'] = _infer_sector(item['code'], item['name'])
+        sample = ', '.join(x.get('name', '') for x in candidates[:8])
+        raise ValueError(f'no KR stock match for query={query}. candidates_sample={sample}')
+
+    matches = sorted(matches, key=lambda x: _match_rank(q_norm, x))
+    item = dict(matches[0])
+    item.pop('norm_name', None)
+    item.pop('norm_code', None)
+    item['sector'] = item.get('sector') or _infer_sector(item['code'], item['name'])
+    item['resolved_by'] = item.get('resolved_by', 'name_match')
     return item
+
+
+def _normalise_name(value: str) -> str:
+    text = str(value or '').strip().lower()
+    text = text.replace('㈜', '').replace('(주)', '').replace('주식회사', '')
+    text = text.replace('엘지', 'lg').replace('에스케이', 'sk').replace('케이티', 'kt')
+    text = text.replace('포스코', 'posco') if text.startswith('posco') else text
+    text = re.sub(r'[\s\-_/.,()\[\]{}·ㆍ]+', '', text)
+    text = text.replace('보통주', '').replace('우선주', '우')
+    return text
+
+
+def _match_rank(q_norm: str, item: dict) -> tuple[int, str, str]:
+    name_norm = item.get('norm_name', '')
+    market = str(item.get('market', ''))
+    code = str(item.get('code', ''))
+    if name_norm == q_norm:
+        return (0, market, code)
+    if name_norm.startswith(q_norm):
+        return (1, market, code)
+    if q_norm in name_norm:
+        return (2, market, code)
+    if name_norm in q_norm:
+        return (3, market, code)
+    return (4, market, code)
+
+
+def _fuzzy_matches(q_norm: str, candidates: list[dict]) -> list[dict]:
+    rows = []
+    for item in candidates:
+        name_norm = item.get('norm_name', '')
+        if not name_norm:
+            continue
+        ratio = SequenceMatcher(None, q_norm, name_norm).ratio()
+        if ratio >= 0.72:
+            copied = dict(item)
+            copied['resolved_by'] = f'fuzzy:{ratio:.2f}'
+            rows.append((ratio, copied))
+    return [item for _, item in sorted(rows, key=lambda x: x[0], reverse=True)[:8]]
 
 
 def _ticker_name_market(code: str) -> tuple[str, str]:
@@ -166,21 +306,29 @@ def _ticker_name_market(code: str) -> tuple[str, str]:
         market = 'KRX'
         return name, market
     except Exception:
+        cached = _find_cached_by_code(code)
+        if cached:
+            return cached.get('name', code), cached.get('market', 'UNKNOWN')
         return code, 'UNKNOWN'
 
 
 def _ticker_candidates() -> list[dict]:
+    rows: list[dict] = []
+    rows.extend(_pykrx_candidates())
+    rows.extend(_cached_report_candidates())
+    rows.extend(_mock_candidates())
+    return _dedupe_candidates(rows)
+
+
+def _pykrx_candidates() -> list[dict]:
     if settings.use_mock_data:
-        return [
-            {'code': str(row.get('code', '')).zfill(6), 'name': str(row.get('name', '')), 'market': str(row.get('market', 'MOCK')), 'sector': str(row.get('sector', '기타'))}
-            for row in mock_data.kr_stock_universe().to_dict('records')
-        ]
+        return []
     try:
         from pykrx import stock
         out: list[dict] = []
         seen = set()
-        for date in _recent_kr_dates(10):
-            for market in ('KOSPI', 'KOSDAQ'):
+        for date in _recent_kr_dates(20):
+            for market in ('KOSPI', 'KOSDAQ', 'KONEX'):
                 try:
                     tickers = stock.get_market_ticker_list(date, market=market)
                 except Exception:
@@ -192,15 +340,66 @@ def _ticker_candidates() -> list[dict]:
                     seen.add(code)
                     name = stock.get_market_ticker_name(code) or ''
                     if name:
-                        out.append({'code': code, 'name': name, 'market': market, 'sector': _infer_sector(code, name)})
+                        out.append({'code': code, 'name': name, 'market': market, 'sector': _infer_sector(code, name), 'resolved_by': 'pykrx_universe'})
             if out:
                 return out
     except Exception:
         pass
+    return []
+
+
+def _cached_report_candidates() -> list[dict]:
+    out: list[dict] = []
+    for path in (REPORT_DIR / 'latest.json', REPORT_DIR / 'recommendation_history.json', REPORT_DIR / 'chat_recommendation_history.json'):
+        data = _read_json(path)
+        if not data:
+            continue
+        rows = data.get('kr_short_stocks') or data.get('items') or []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            code = str(row.get('code', '')).zfill(6)
+            name = str(row.get('name', '')).strip()
+            if code and name and code != '000000':
+                out.append({'code': code, 'name': name, 'market': row.get('market', 'CACHED'), 'sector': row.get('sector') or _infer_sector(code, name), 'resolved_by': f'cache:{path.name}'})
+    return out
+
+
+def _mock_candidates() -> list[dict]:
     return [
-        {'code': str(row.get('code', '')).zfill(6), 'name': str(row.get('name', '')), 'market': str(row.get('market', 'MOCK')), 'sector': str(row.get('sector', '기타'))}
+        {'code': str(row.get('code', '')).zfill(6), 'name': str(row.get('name', '')), 'market': str(row.get('market', 'MOCK')), 'sector': str(row.get('sector', '기타')), 'resolved_by': 'mock'}
         for row in mock_data.kr_stock_universe().to_dict('records')
     ]
+
+
+def _dedupe_candidates(rows: list[dict]) -> list[dict]:
+    by_code: dict[str, dict] = {}
+    for row in rows:
+        code = str(row.get('code', '')).zfill(6)
+        name = str(row.get('name', '')).strip()
+        if not code or not name or code == '000000':
+            continue
+        if code not in by_code or by_code[code].get('resolved_by', '').startswith(('mock', 'cache')):
+            by_code[code] = {'code': code, 'name': name, 'market': row.get('market', 'UNKNOWN'), 'sector': row.get('sector') or _infer_sector(code, name), 'resolved_by': row.get('resolved_by', 'candidate')}
+    return list(by_code.values())
+
+
+def _find_cached_by_code(code: str) -> dict | None:
+    code = str(code).zfill(6)
+    for row in _cached_report_candidates() + _mock_candidates():
+        if str(row.get('code', '')).zfill(6) == code:
+            return row
+    return None
+
+
+def _read_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 
 def _action(score: float, threshold: float, setup: str, risk_pct: float, min_risk_pct: float, max_risk_pct: float, entry: float, price: float, max_entry_gap_pct: float) -> tuple[str, str]:
@@ -209,7 +408,7 @@ def _action(score: float, threshold: float, setup: str, risk_pct: float, min_ris
     if risk_pct < min_risk_pct:
         return '관망', f'손절폭 {risk_pct:.2f}%가 너무 좁아 노이즈 손절 위험이 큽니다.'
     if risk_pct > max_risk_pct:
-        return '회피', f'손절폭 {risk_pct:.2f}%가 허용치 {max_risk_pct:.2f}%를 초과합니다.'
+        return '회피', f'손절폭 {risk_pct:.2f}%가 허용치 {max_risk_pct:.2f}를 초과합니다.'
     if entry / price - 1.0 > max_entry_gap_pct / 100.0:
         return '조건부 대기', '돌파 진입가가 현재가와 너무 멀어 추격매수 금지입니다.'
     if score >= threshold + 10:
