@@ -58,8 +58,9 @@ class Settings:
     us_monthly_budget_krw: float = _float_env('US_MONTHLY_BUDGET_KRW', '1000000')
     min_kr_trade_value_krw: float = _float_env('MIN_KR_TRADE_VALUE_KRW', '5000000000')
     min_kr_price: float = _float_env('MIN_KR_PRICE', '1000')
-    kr_universe_top_n: int = _int_env('KR_UNIVERSE_TOP_N', '80')
-    kr_universe_top_n_bull: int = _int_env('KR_UNIVERSE_TOP_N_BULL', '50')
+    # Keep a wider live universe so fast large-cap/theme repricing moves are not lost in the first prefilter.
+    kr_universe_top_n: int = _int_env('KR_UNIVERSE_TOP_N', '180')
+    kr_universe_top_n_bull: int = _int_env('KR_UNIVERSE_TOP_N_BULL', '180')
     max_kr_entry_gap_from_ma20_pct: float = _float_env('MAX_KR_ENTRY_GAP_FROM_MA20_PCT', '12')
     max_kr_trade_risk_pct: float = _float_env('MAX_KR_TRADE_RISK_PCT', '12')
     min_kr_trade_risk_pct: float = _float_env('MIN_KR_TRADE_RISK_PCT', '1.5')
