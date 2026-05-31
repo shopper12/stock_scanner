@@ -10,8 +10,6 @@ paths:
     post:
       operationId: saveChatGptPicks
       summary: Save recommendation records
-      security:
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -98,12 +96,5 @@ paths:
                           type: string
                         source_id:
                           type: string
-        '401':
-          description: Unauthorized
         '400':
           description: Bad request
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
