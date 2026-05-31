@@ -78,7 +78,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
 
             setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w, high252)
             score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct, sector_strength, sector_rank, market_rotation, change_today)
-            threshold = max(63.0 if settings.bull_market_mode else 60.0, rules.score_threshold + (3.0 if settings.bull_market_mode else 0.0))
+            threshold = max(58.0 if settings.bull_market_mode else 55.0, rules.score_threshold + (3.0 if settings.bull_market_mode else 0.0))
             if score < threshold:
                 continue
 
@@ -189,64 +189,70 @@ def _setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60:
 
 def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, setup: str, max_gap_ma20_pct: float, sector_strength: float, sector_rank: int, market_rotation: float, change_today: float) -> float:
     score = 50.0
-    score += 12.0 if price > ma200 else -15.0
-    score += 8.0 if price > ma60 else -5.0
-    score += 7.0 if price > ma20 else -3.0
-    score += 5.0 if ma20 > ma60 else -2.0
-    score += 3.0 if ma60 > ma120 else -2.0
-    score += score_clip(ret252 * 30.0, -12.0, 18.0)
-    score += score_clip(ret20 * 65.0, -8.0, 14.0)
-    score += score_clip(ret60 * 35.0, -8.0, 10.0)
-    score += score_clip(ret5 * 38.0, -5.0, 5.0)
-    if -0.18 <= drawdown60 <= -0.05 and price > ma60:
-        score += 4.0
-    if drawdown52w > -0.03 and setup != 'new_52w_high_breakout':
-        score -= 5.0
-    if -0.08 <= drawdown52w <= -0.03 and price > ma20:
-        score += 6.0
-    score += score_clip(drawdown52w * 30.0, -12.0, 0.0)
 
-    if 50 <= rsi14 <= 68:
+    score += 6.0 if price > ma200 else -8.0
+    score += 4.0 if price > ma60 else -3.0
+    score += 4.0 if price > ma20 else -2.0
+    score += 3.0 if ma20 > ma60 else -1.5
+    score += 3.0 if ma60 > ma120 else -1.5
+
+    score += score_clip(ret252 * 15.0, -8.0, 10.0)
+    score += score_clip(ret20 * 30.0, -5.0, 8.0)
+    score += score_clip(ret60 * 18.0, -5.0, 6.0)
+    score += score_clip(ret5 * 18.0, -3.0, 3.0)
+
+    if -0.18 <= drawdown60 <= -0.05 and price > ma60:
         score += 5.0
-    elif rsi14 > 82:
-        score -= 10.0
-    elif rsi14 > 75:
-        score -= 4.0
+    if -0.15 <= drawdown52w <= -0.05 and price > ma20:
+        score += 6.0
+    if drawdown52w > -0.03 and setup != 'new_52w_high_breakout':
+        score -= 8.0
+    score += score_clip(drawdown52w * 15.0, -8.0, 0.0)
+
+    if 45 <= rsi14 <= 62:
+        score += 6.0
+    elif rsi14 > 80:
+        score -= 15.0
+    elif rsi14 > 72:
+        score -= 7.0
     elif rsi14 < 35:
         score -= 5.0
 
-    liquidity = score_clip((trade_value / settings.min_kr_trade_value_krw) * 8.0, 0.0, 12.0)
-    volume = score_clip((volume_ratio - 1.0) * 10.0, 0.0, 10.0) + score_clip((value_ratio - 1.0) * 8.0, 0.0, 10.0)
-    score += liquidity + volume
+    liquidity = score_clip((trade_value / settings.min_kr_trade_value_krw) * 5.0, 0.0, 8.0)
+    volume = score_clip((volume_ratio - 1.0) * 6.0, 0.0, 6.0)
+    value = score_clip((value_ratio - 1.0) * 5.0, 0.0, 6.0)
+    score += liquidity + volume + value
 
-    score += score_clip(sector_strength / 100.0 * 12.0, 0.0, 12.0)
-    score += score_clip(market_rotation / 100.0 * 8.0, 0.0, 8.0)
+    if sector_strength > 0:
+        score += score_clip(sector_strength / 100.0 * 8.0, 0.0, 8.0)
+    if market_rotation > 0:
+        score += score_clip(market_rotation / 100.0 * 5.0, 0.0, 5.0)
     if sector_rank <= 3:
-        score += 5.0
-    elif sector_rank <= 7:
-        score += 2.0
-    if change_today >= 3.0:
         score += 3.0
+    elif sector_rank <= 7:
+        score += 1.5
+    if change_today >= 3.0:
+        score += 2.0
     elif change_today < -1.0:
-        score -= 4.0
+        score -= 3.0
 
     if setup == 'new_52w_high_breakout':
-        score += 9.0
-    elif setup == 'breakout':
-        score += score_clip((price / high20 - 0.98) * 260.0, 0.0, 7.0)
-    elif setup == 'pullback_reversal':
-        score += 5.0
-    elif setup == 'trend_continuation':
         score += 3.0
     elif setup == 'first_pullback_after_high':
+        score += 8.0
+    elif setup == 'pullback_reversal':
         score += 7.0
+    elif setup == 'breakout':
+        score -= 3.0
+    elif setup == 'trend_continuation':
+        score -= 2.0
 
     if gap_ma20 > max_gap_ma20_pct / 100.0:
-        score -= 12.0
-    if ret5 < -0.06:
-        score -= 8.0
-    if drawdown60 < -0.25:
         score -= 10.0
+    if ret5 < -0.06:
+        score -= 6.0
+    if drawdown60 < -0.25:
+        score -= 8.0
     return score_clip(score, 0.0, 100.0)
 
 
@@ -254,9 +260,9 @@ def _entry(price: float, high20: float, ma20: float, setup: str, high252: float 
     if setup == 'new_52w_high_breakout' and high252:
         return max(price, high252 * 1.001)
     if setup == 'breakout':
-        return max(price, high20 * 1.002)
+        return max(price * 1.005, high20 * 1.003)
     if setup in {'pullback_reversal', 'first_pullback_after_high'}:
-        return max(price, ma20 * 1.005)
+        return max(price, ma20 * 1.003)
     return price
 
 
