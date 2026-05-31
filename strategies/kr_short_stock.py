@@ -76,9 +76,11 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             market_rotation = float(row.get('market_rotation_score') or 0.0)
             change_today = float(row.get('change_pct_today') or 0.0)
 
-            setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w, high252)
+            setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w, high252, ret5, ret20, volume_ratio, value_ratio, trade_value, sector_rank, market_rotation, change_today)
             score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct, sector_strength, sector_rank, market_rotation, change_today)
             threshold = max(58.0 if settings.bull_market_mode else 55.0, rules.score_threshold + (3.0 if settings.bull_market_mode else 0.0))
+            if setup == 'theme_repricing_breakout':
+                threshold = min(threshold, 54.0)
             if score < threshold:
                 continue
 
@@ -90,7 +92,9 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             if stop >= min(price, entry):
                 stop = min(price, entry) * 0.96
             risk_pct = (entry - stop) / entry * 100.0
-            if risk_pct < rules.min_risk_pct or risk_pct > rules.max_risk_pct:
+            if setup == 'theme_repricing_breakout' and risk_pct <= 15.0:
+                pass
+            elif risk_pct < rules.min_risk_pct or risk_pct > rules.max_risk_pct:
                 continue
 
             risk_per_share = max(entry - stop, entry * 0.01)
@@ -98,8 +102,8 @@ def scan_kr_short_stocks() -> pd.DataFrame:
             shares = math.floor(risk_budget / risk_per_share)
             position_size = min(settings.account_equity_krw * _max_position_pct(setup), max(0, shares * entry))
             target_base = max(entry, price)
-            target1 = target_base * 1.08
-            target2 = target_base * 1.16
+            target1 = target_base * (1.06 if setup == 'theme_repricing_breakout' else 1.08)
+            target2 = target_base * (1.13 if setup == 'theme_repricing_breakout' else 1.16)
             history_last_date = _format_date(latest.get('date'))
 
             records.append({
@@ -146,7 +150,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
     if not records:
         return pd.DataFrame(columns=COLUMNS)
     ranked = pd.DataFrame(records).sort_values(['score', 'market_rotation_score', 'trade_value_krw'], ascending=[False, False, False]).reset_index(drop=True)
-    return _select_diversified(ranked, max_items=5)
+    return _select_diversified(ranked, max_items=8)
 
 
 def _prepare_history(hist: pd.DataFrame) -> pd.DataFrame:
@@ -172,8 +176,20 @@ def _rsi14(close: pd.Series) -> float:
     return float(100.0 - (100.0 / (1.0 + rs)))
 
 
-def _setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, drawdown60: float, drawdown52w: float, high252: float | None = None) -> str:
+def _setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, drawdown60: float, drawdown52w: float, high252: float | None = None, ret5: float = 0.0, ret20: float = 0.0, volume_ratio: float = 0.0, value_ratio: float = 0.0, trade_value: float = 0.0, sector_rank: int = 99, market_rotation: float = 0.0, change_today: float = 0.0) -> str:
     aligned = price > ma20 > ma60 > ma120 and price > ma200
+    theme_repricing = (
+        price > ma20
+        and price > ma60
+        and ret5 >= 0.045
+        and ret20 >= 0.075
+        and (volume_ratio >= 1.35 or value_ratio >= 1.35)
+        and trade_value >= settings.min_kr_trade_value_krw * 5.0
+        and (change_today >= 2.0 or market_rotation >= 65.0 or sector_rank <= 5)
+        and gap_ma20_safe(price, ma20, limit=0.22)
+    )
+    if theme_repricing:
+        return 'theme_repricing_breakout'
     if high252 and price >= high252 * 0.999 and price > ma20 and price > ma60 and price > ma200:
         return 'new_52w_high_breakout'
     if -0.08 <= drawdown52w <= -0.03 and price > ma20:
@@ -185,6 +201,10 @@ def _setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60:
     if aligned and price > high20 * 0.97:
         return 'trend_continuation'
     return 'watch'
+
+
+def gap_ma20_safe(price: float, ma20: float, limit: float) -> bool:
+    return ma20 > 0 and price / ma20 - 1.0 <= limit
 
 
 def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, setup: str, max_gap_ma20_pct: float, sector_strength: float, sector_rank: int, market_rotation: float, change_today: float) -> float:
@@ -201,16 +221,24 @@ def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, h
     score += score_clip(ret60 * 18.0, -5.0, 6.0)
     score += score_clip(ret5 * 18.0, -3.0, 3.0)
 
+    if setup == 'theme_repricing_breakout':
+        score += 10.0
+        score += score_clip((ret5 - 0.04) * 80.0, 0.0, 6.0)
+        score += score_clip((ret20 - 0.07) * 45.0, 0.0, 6.0)
+        score += score_clip((value_ratio - 1.3) * 5.0, 0.0, 5.0)
+
     if -0.18 <= drawdown60 <= -0.05 and price > ma60:
         score += 5.0
     if -0.15 <= drawdown52w <= -0.05 and price > ma20:
         score += 6.0
-    if drawdown52w > -0.03 and setup != 'new_52w_high_breakout':
+    if drawdown52w > -0.03 and setup not in {'new_52w_high_breakout', 'theme_repricing_breakout'}:
         score -= 8.0
     score += score_clip(drawdown52w * 15.0, -8.0, 0.0)
 
     if 45 <= rsi14 <= 62:
         score += 6.0
+    elif setup == 'theme_repricing_breakout' and 72 < rsi14 <= 84:
+        score -= 2.0
     elif rsi14 > 80:
         score -= 15.0
     elif rsi14 > 72:
@@ -236,7 +264,9 @@ def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, h
     elif change_today < -1.0:
         score -= 3.0
 
-    if setup == 'new_52w_high_breakout':
+    if setup == 'theme_repricing_breakout':
+        score += 6.0
+    elif setup == 'new_52w_high_breakout':
         score += 3.0
     elif setup == 'first_pullback_after_high':
         score += 8.0
@@ -247,8 +277,10 @@ def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, h
     elif setup == 'trend_continuation':
         score -= 2.0
 
-    if gap_ma20 > max_gap_ma20_pct / 100.0:
+    if gap_ma20 > max_gap_ma20_pct / 100.0 and setup != 'theme_repricing_breakout':
         score -= 10.0
+    elif setup == 'theme_repricing_breakout' and gap_ma20 > 0.22:
+        score -= 8.0
     if ret5 < -0.06:
         score -= 6.0
     if drawdown60 < -0.25:
@@ -259,6 +291,8 @@ def _score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, h
 def _entry(price: float, high20: float, ma20: float, setup: str, high252: float | None = None) -> float:
     if setup == 'new_52w_high_breakout' and high252:
         return max(price, high252 * 1.001)
+    if setup == 'theme_repricing_breakout':
+        return price
     if setup == 'breakout':
         return max(price * 1.005, high20 * 1.003)
     if setup in {'pullback_reversal', 'first_pullback_after_high'}:
@@ -267,16 +301,17 @@ def _entry(price: float, high20: float, ma20: float, setup: str, high252: float 
 
 
 def _stop(price: float, ma20: float, ma60: float, ma200: float, low10: float, atr14: float, setup: str = '') -> float:
-    atr_multiple = 1.8 if setup in {'new_52w_high_breakout', 'trend_continuation'} else 1.45
+    atr_multiple = 2.1 if setup == 'theme_repricing_breakout' else 1.8 if setup in {'new_52w_high_breakout', 'trend_continuation'} else 1.45
     atr_line = price - atr14 * atr_multiple
-    structure_line = min(low10 * 0.99, ma20 * 0.97)
-    trend_line = ma60 * 0.965 if price > ma60 else price * 0.94
+    structure_line = min(low10 * 0.99, ma20 * (0.955 if setup == 'theme_repricing_breakout' else 0.97))
+    trend_line = ma60 * 0.955 if setup == 'theme_repricing_breakout' and price > ma60 else ma60 * 0.965 if price > ma60 else price * 0.94
     long_trend_line = ma200 * 0.97 if price > ma200 else price * 0.92
     return max(min(atr_line, structure_line), trend_line, long_trend_line)
 
 
 def _max_position_pct(setup: str) -> float:
     base = {
+        'theme_repricing_breakout': 0.24,
         'new_52w_high_breakout': 0.32,
         'first_pullback_after_high': 0.30,
         'breakout': 0.28,
@@ -290,15 +325,25 @@ def _max_position_pct(setup: str) -> float:
 
 def _select_diversified(ranked: pd.DataFrame, max_items: int) -> pd.DataFrame:
     selected = []
-    used_sectors = set()
+    selected_codes = set()
+    priority = ranked[ranked['strategy_type'].isin(['theme_repricing_breakout', 'new_52w_high_breakout'])]
+    for _, row in priority.head(3).iterrows():
+        selected.append(row)
+        selected_codes.add(row['code'])
+        if len(selected) >= max_items:
+            return pd.DataFrame(selected).reset_index(drop=True)
+
+    used_sectors = {row['sector'] for row in selected}
     for _, row in ranked.iterrows():
+        if row['code'] in selected_codes:
+            continue
         if row['sector'] not in used_sectors:
             selected.append(row)
+            selected_codes.add(row['code'])
             used_sectors.add(row['sector'])
         if len(selected) >= max_items:
             break
     if len(selected) < max_items:
-        selected_codes = {x['code'] for x in selected}
         for _, row in ranked.iterrows():
             if row['code'] not in selected_codes:
                 selected.append(row)
@@ -324,7 +369,9 @@ def _reason(sector: str, setup: str, volume_ratio: float, value_ratio: float, re
     flags = [f'{sector}(섹터 {sector_rank}위/{sector_strength:.0f}, 종목당일 {change_today:.1f}%, RSI {rsi14:.0f})']
     if market_rotation >= 70:
         flags.append('시장 자금 유입 상위')
-    if setup == 'new_52w_high_breakout':
+    if setup == 'theme_repricing_breakout':
+        flags.append('대형주/테마 재평가 급등 감지')
+    elif setup == 'new_52w_high_breakout':
         flags.append('52주 신고가 돌파')
     elif setup == 'breakout':
         flags.append('20/60일 고점권 돌파')
@@ -342,7 +389,7 @@ def _reason(sector: str, setup: str, volume_ratio: float, value_ratio: float, re
         flags.append('20일 상대강도 양호')
     if -0.18 <= drawdown60 <= -0.035:
         flags.append('고점 대비 건전한 조정')
-    if drawdown52w > -0.03 and setup != 'new_52w_high_breakout':
+    if drawdown52w > -0.03 and setup not in {'new_52w_high_breakout', 'theme_repricing_breakout'}:
         flags.append('52주 고점 근접: 저항 주의')
     if gap_ma20 > max_gap_ma20_pct / 100:
         flags.append('단기 과열 주의')
@@ -350,6 +397,8 @@ def _reason(sector: str, setup: str, volume_ratio: float, value_ratio: float, re
 
 
 def _failure_condition(setup: str) -> str:
+    if setup == 'theme_repricing_breakout':
+        return '급등일 저가 또는 MA20 이탈, 거래대금 급감 시 무효'
     if setup == 'new_52w_high_breakout':
         return '신고가 아래로 재이탈 또는 stop_loss 이탈'
     if setup == 'breakout':
