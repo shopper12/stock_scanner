@@ -40,9 +40,9 @@ jobs:
         run: |
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/stock-scanner-upload.jks"
 
-- name: Patch release build metadata
-  run: python tools/patch_android_release_metadata.py
-  
+      - name: Patch release build metadata
+        run: python tools/patch_android_release_metadata.py
+
       - name: Build signed release APK
         env:
           ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/stock-scanner-upload.jks
