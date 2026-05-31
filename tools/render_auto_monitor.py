@@ -55,7 +55,7 @@ def _api_get(api_base_url: str, path: str) -> dict[str, Any]:
     return _read_json(req)
 
 
-def _api_post(api_base_url: str, path: str, payload: dict[str, Any], admin_token: str) -> dict[str, Any]:
+def _api_post(api_base_url: str, path: str, payload: dict[str, Any]) -> dict[str, Any]:
     body = json.dumps(payload).encode('utf-8')
     req = request.Request(
         f'{api_base_url}{path}',
@@ -64,7 +64,6 @@ def _api_post(api_base_url: str, path: str, payload: dict[str, Any], admin_token
         headers={
             'Accept': 'application/json',
             'Content-Type': 'application/json; charset=utf-8',
-            'X-Admin-Token': admin_token,
         },
     )
     return _read_json(req)
