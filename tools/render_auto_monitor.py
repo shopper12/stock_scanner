@@ -17,10 +17,6 @@ PERFORMANCE_COPY_PATH = REPORT_DIR / 'recommendation_performance_latest.json'
 
 def main() -> int:
     api_base_url = os.getenv('STOCK_SCANNER_API_BASE_URL', DEFAULT_API_BASE_URL).rstrip('/')
-    admin_token = os.getenv('ADMIN_TOKEN', '').strip()
-    if not admin_token:
-        print('ADMIN_TOKEN is required to run server-side scan/backtest.', file=sys.stderr)
-        return 2
 
     max_symbols = _int_env('KR_BACKTEST_MAX_SYMBOLS', 60)
     write_rules = _bool_env('AUTO_EVOLVE_WRITE', True)
