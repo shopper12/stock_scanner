@@ -12,9 +12,8 @@ from chat_picks import (
 )
 from notifier import send_telegram_message
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 MAX_ITEMS = 10
-
 
 
 def _truthy(value) -> bool:
@@ -119,7 +118,7 @@ class Handler(BaseHTTPRequestHandler):
                     "service": "stock_scanner_gpt_action",
                     "version": APP_VERSION,
                     "endpoints": ["/api/chatgpt-picks"],
-                    "auth_configured": bool(_expected_token()),
+                    "auth": "none",
                 },
             )
             return
@@ -175,10 +174,7 @@ class Handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header(
-            "Access-Control-Allow-Headers",
-            "Content-Type, Authorization, X-API-Key",
-        )
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def log_message(self, fmt: str, *args) -> None:
         print(f"{self.address_string()} - {fmt % args}")
