@@ -14,19 +14,20 @@ RULES_PATH = ROOT_DIR / 'rules' / 'kr_short_rules.json'
 @dataclass(frozen=True)
 class KrShortRules:
     version: int = 1
-    score_threshold: float = 62.0
+    score_threshold: float = 55.0
     min_risk_pct: float = 1.5
     max_risk_pct: float = 12.0
     max_entry_gap_pct: float = 3.5
     max_gap_ma20_pct: float = 12.0
-    surge_threshold_pct: float = 15.0
+    surge_threshold_pct: float = 12.0
     surge_lookahead_days: int = 20
     hold_days: int = 10
     min_backtest_trades: int = 15
-    min_surge_precision: float = 0.35
-    min_avg_return_pct: float = 1.0
-    min_profit_factor: float = 1.10
-    min_improvement_score: float = 0.20
+    min_surge_precision: float = 0.15
+    min_avg_return_pct: float = 0.3
+    min_profit_factor: float = 1.05
+    min_win_rate: float = 0.45
+    min_improvement_score: float = 0.05
     last_evolution: str | None = None
     last_summary: dict | None = None
 
