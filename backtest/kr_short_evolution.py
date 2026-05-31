@@ -8,9 +8,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from analysis.gemini_report import review_report
+from backtest.missed_surge_audit import run_missed_surge_audit
 from data.market_data import get_kr_stock_history, get_kr_stock_universe
 from strategies.kr_short_rules import KrShortRules, load_kr_short_rules, rules_with_summary, save_kr_short_rules
-from strategies.kr_short_stock import _entry, _failure_condition, _prepare_history, _reason, _rsi14, _score, _select_diversified, _setup, _stop
+from strategies.kr_short_stock import _entry, _failure_condition, _prepare_history, _reason, _rsi14, _score, _setup, _stop
 from strategies.metrics import momentum
 
 REPORT_DIR = Path(__file__).resolve().parents[1] / 'reports'
@@ -38,14 +39,15 @@ def run_kr_short_backtest(rules: KrShortRules | None = None, max_symbols: int | 
 
 def evolve_kr_short_rules(write: bool = False, max_symbols: int | None = None, ai_review: bool = True) -> dict:
     base = load_kr_short_rules()
+    audit_summary = _safe_missed_surge_audit(max_symbols=max_symbols)
     base_summary = run_kr_short_backtest(base, max_symbols=max_symbols)
-    candidates = _candidate_rules(base)
+    candidates = _candidate_rules(base, audit_summary)
     scored = []
     for candidate in candidates:
         summary = run_kr_short_backtest(candidate, max_symbols=max_symbols)
-        scored.append((candidate, summary, _fitness(summary)))
+        scored.append((candidate, summary, _fitness(summary, audit_summary)))
 
-    base_fitness = _fitness(base_summary)
+    base_fitness = _fitness(base_summary, audit_summary)
     best_rules, best_summary, best_fitness = max(scored, key=lambda x: x[2], default=(base, base_summary, base_fitness))
     improvement = best_fitness - base_fitness
     accepted = _passes_guardrails(best_rules, best_summary) and improvement >= getattr(base, 'min_improvement_score', 0.05)
@@ -61,6 +63,8 @@ def evolve_kr_short_rules(write: bool = False, max_symbols: int | None = None, a
         'improvement': round(improvement, 4),
         'accepted': accepted,
         'write_requested': write,
+        'missed_surge_audit': audit_summary,
+        'candidate_count': len(candidates),
     }
     if ai_review:
         try:
@@ -77,6 +81,17 @@ def evolve_kr_short_rules(write: bool = False, max_symbols: int | None = None, a
     else:
         result['rules_written'] = False
     return result
+
+
+def _safe_missed_surge_audit(max_symbols: int | None = None) -> dict:
+    try:
+        return run_missed_surge_audit(max_symbols=max_symbols)
+    except Exception as exc:
+        return {
+            'total_missed': 0,
+            'audit_error': f'{exc.__class__.__name__}: {exc}',
+            'recommendation': '미포착 급등 감사 실패. 기존 백테스트만 사용.',
+        }
 
 
 def _backtest_one_symbol(hist: pd.DataFrame, row: dict, rules: KrShortRules) -> list[dict]:
@@ -229,18 +244,29 @@ def _summarise(trades: list[dict], rules: KrShortRules) -> dict:
     }
 
 
-def _candidate_rules(base: KrShortRules) -> list[KrShortRules]:
+def _candidate_rules(base: KrShortRules, audit_summary: dict | None = None) -> list[KrShortRules]:
+    audit_summary = audit_summary or {}
+    score_values = {base.score_threshold - 4, base.score_threshold - 2, base.score_threshold, base.score_threshold + 2, base.score_threshold + 4}
+    if int(audit_summary.get('within_3pts_of_threshold', 0) or 0) >= 5:
+        score_values.update({base.score_threshold - 3, base.score_threshold - 1})
+    if int(audit_summary.get('within_5pts_of_threshold', 0) or 0) >= 8:
+        score_values.add(base.score_threshold - 5)
+
     candidates = [base]
-    for score_threshold in sorted(set([base.score_threshold - 4, base.score_threshold - 2, base.score_threshold, base.score_threshold + 2, base.score_threshold + 4])):
+    for score_threshold in sorted(score_values):
         for max_gap in sorted(set([base.max_gap_ma20_pct - 3, base.max_gap_ma20_pct, base.max_gap_ma20_pct + 3])):
             for max_risk in sorted(set([base.max_risk_pct - 2, base.max_risk_pct, base.max_risk_pct + 2])):
-                if score_threshold < 50 or max_gap < 6 or max_risk < 5:
+                if score_threshold < 48 or max_gap < 6 or max_risk < 5:
                     continue
                 candidates.append(replace(base, score_threshold=float(score_threshold), max_gap_ma20_pct=float(max_gap), max_risk_pct=float(max_risk)))
-    return candidates
+    unique: dict[tuple[float, float, float], KrShortRules] = {}
+    for candidate in candidates:
+        key = (float(candidate.score_threshold), float(candidate.max_gap_ma20_pct), float(candidate.max_risk_pct))
+        unique[key] = candidate
+    return list(unique.values())
 
 
-def _fitness(summary: dict) -> float:
+def _fitness(summary: dict, audit_summary: dict | None = None) -> float:
     trades = summary.get('trades', 0)
     if trades <= 0:
         return -999.0
@@ -250,12 +276,15 @@ def _fitness(summary: dict) -> float:
     profit_factor = min(summary.get('profit_factor', 0.0), 3.0)
     stop_rate = summary.get('stop_rate', 1.0)
     win_rate = summary.get('win_rate', 0.0)
+    missed_total = float((audit_summary or {}).get('total_missed', 0) or 0)
+    missed_penalty = min(missed_total * 0.05, 1.0)
     return sample_penalty * (
         avg_return * 0.40
         + (win_rate - 0.50) * 12.0
         + surge_precision * 6.0
         + profit_factor * 1.0
         - stop_rate * 2.5
+        - missed_penalty
     )
 
 
