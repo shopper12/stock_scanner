@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import json
 import os
-from datetime import datetime, timedelta
-from pathlib import Path
 
 import pandas as pd
 
@@ -14,8 +11,6 @@ from strategies.metrics import score_clip
 
 _ORIGINAL_SCAN = base.scan_kr_short_stocks
 _ORIGINAL_RULES_LOADER = base.load_kr_short_rules
-ROOT_DIR = Path(__file__).resolve().parents[1]
-HISTORY_PATH = ROOT_DIR / 'reports' / 'recommendation_history.json'
 
 
 def scan_kr_short_stocks() -> pd.DataFrame:
@@ -50,75 +45,8 @@ def _top_n() -> int:
         return 5
 
 
-def _repeat_exclude_days() -> int:
-    try:
-        return max(0, int(float(os.getenv('KR_REPEAT_EXCLUDE_DAYS', '5'))))
-    except ValueError:
-        return 5
-
-
-def _repeat_penalty() -> float:
-    try:
-        return max(0.0, float(os.getenv('KR_REPEAT_SCORE_PENALTY', '8')))
-    except ValueError:
-        return 8.0
-
-
 def _select_top_n(ranked: pd.DataFrame, max_items: int) -> pd.DataFrame:
-    if ranked.empty:
-        return ranked.head(0).reset_index(drop=True)
-    top_n = _top_n()
-    scored = _apply_recent_repeat_penalty(ranked.copy())
-    fresh = scored[~scored['recent_repeat']].copy()
-    if len(fresh) >= top_n:
-        return fresh.sort_values(['adjusted_score', 'score', 'trade_value_krw'], ascending=[False, False, False]).head(top_n).drop(columns=['adjusted_score', 'recent_repeat'], errors='ignore').reset_index(drop=True)
-    fallback = scored.sort_values(['adjusted_score', 'score', 'trade_value_krw'], ascending=[False, False, False]).head(top_n)
-    return fallback.drop(columns=['adjusted_score', 'recent_repeat'], errors='ignore').reset_index(drop=True)
-
-
-def _apply_recent_repeat_penalty(df: pd.DataFrame) -> pd.DataFrame:
-    recent_codes = _recent_recommended_codes(_repeat_exclude_days())
-    if not recent_codes:
-        df['recent_repeat'] = False
-        df['adjusted_score'] = pd.to_numeric(df.get('score', 0), errors='coerce').fillna(0.0)
-        return df
-    codes = df['code'].astype(str).str.zfill(6)
-    df['recent_repeat'] = codes.isin(recent_codes)
-    base_score = pd.to_numeric(df.get('score', 0), errors='coerce').fillna(0.0)
-    df['adjusted_score'] = base_score - df['recent_repeat'].astype(float) * _repeat_penalty()
-    df['reason'] = df.apply(_append_repeat_note, axis=1)
-    return df
-
-
-def _append_repeat_note(row: pd.Series) -> str:
-    reason = str(row.get('reason') or '')
-    if bool(row.get('recent_repeat')):
-        return f'{reason} / 최근추천반복: 감점 적용'
-    return reason
-
-
-def _recent_recommended_codes(days: int) -> set[str]:
-    if days <= 0 or not HISTORY_PATH.exists():
-        return set()
-    try:
-        data = json.loads(HISTORY_PATH.read_text(encoding='utf-8'))
-        cutoff = datetime.now() - timedelta(days=days)
-        out: set[str] = set()
-        for item in data.get('items', []):
-            raw_date = str(item.get('scan_date') or '').strip()
-            if not raw_date:
-                continue
-            try:
-                scan_date = datetime.fromisoformat(raw_date[:10])
-            except ValueError:
-                continue
-            if scan_date >= cutoff:
-                code = str(item.get('code') or '').zfill(6)
-                if code and code != '000000':
-                    out.add(code)
-        return out
-    except Exception:
-        return set()
+    return ranked.head(_top_n()).reset_index(drop=True)
 
 
 def _score_pure(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, setup: str, max_gap_ma20_pct: float, sector_strength: float, sector_rank: int, market_rotation: float, change_today: float) -> float:
