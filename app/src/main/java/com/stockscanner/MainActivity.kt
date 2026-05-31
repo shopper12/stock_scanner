@@ -42,6 +42,7 @@ private const val LATEST_URL = "$API_BASE_URL/api/latest"
 private const val RULES_URL = "$API_BASE_URL/api/kr-short-rules"
 private const val RUN_SCAN_URL = "$API_BASE_URL/api/run-scan"
 private const val HISTORY_URL = "$API_BASE_URL/api/recommendation-history"
+private const val PERFORMANCE_URL = "$API_BASE_URL/api/recommendation-performance"
 private const val BACKTEST_URL = "$API_BASE_URL/api/kr-backtest"
 private const val RUN_BACKTEST_URL = "$API_BASE_URL/api/run-backtest"
 private const val STOCK_STRATEGY_URL = "$API_BASE_URL/api/kr-stock-strategy"
@@ -66,6 +67,7 @@ private fun StockScannerScreen() {
     var snapshot by remember { mutableStateOf<StockSnapshot?>(null) }
     var rules by remember { mutableStateOf<KrShortRules?>(null) }
     var history by remember { mutableStateOf<RecommendationHistory?>(null) }
+    var performance by remember { mutableStateOf<RecommendationPerformance?>(null) }
     var backtest by remember { mutableStateOf<KrBacktestReport?>(null) }
     var stockQuery by remember { mutableStateOf("") }
     var stockStrategy by remember { mutableStateOf<KrStockStrategy?>(null) }
@@ -102,6 +104,7 @@ private fun StockScannerScreen() {
             snapshot = fetchSnapshot()
             rules = fetchRules()
             history = fetchHistory()
+            performance = fetchPerformanceOrNull()
             backtest = fetchBacktestOrNull()
         }.onFailure { error = it.message ?: it::class.java.simpleName }
         loading = false
@@ -122,6 +125,7 @@ private fun StockScannerScreen() {
             val scanResult = runScan(key)
             snapshot = fetchSnapshot()
             history = fetchHistory()
+            performance = fetchPerformanceOrNull()
             message = "조건 저장 및 재스캔 완료: KR 후보 ${scanResult.krShortCount}개"
         }.onFailure { error = it.message ?: it::class.java.simpleName }
         saving = false
@@ -188,6 +192,7 @@ private fun StockScannerScreen() {
         if (error != null) item { InfoCard("API error: $error") }
         if (message != null) item { InfoCard(message ?: "") }
         if (showHistory) {
+            item { PerformanceSummaryCard(performance) }
             item { HistorySummary(history) }
             val items = history?.items.orEmpty()
             if (items.isEmpty()) {
@@ -227,6 +232,27 @@ private fun StockScannerScreen() {
                 item { InfoCard("No KR short candidates.") }
             } else if (data != null) {
                 items(data.stocks) { stock -> StockCard(stock) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PerformanceSummaryCard(performance: RecommendationPerformance?) {
+    val summary = performance?.summary
+    if (summary == null) {
+        InfoCard("추천 성과: 아직 생성된 성과 리포트가 없습니다. 자동 모니터링 또는 성과갱신 API 실행 후 표시됩니다.")
+        return
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("추천 성과 요약", fontWeight = FontWeight.Bold)
+            Text("생성: ${performance.createdAtKst}")
+            Text("누적 ${summary.totalRecommendations}개 / 계산 가능 ${summary.measurableCount}개")
+            Text("평균 ${formatSignedPercent(summary.avgPnlPct)} / 중앙값 ${formatSignedPercent(summary.medianPnlPct)} / 승률 ${formatPercent(summary.winRate)}")
+            Text("손절 ${formatPercent(summary.hitStopRate)} / 목표1 ${formatPercent(summary.hitTarget1Rate)} / 목표2 ${formatPercent(summary.hitTarget2Rate)}")
+            if (summary.bestSetup.isNotBlank() || summary.worstSetup.isNotBlank()) {
+                Text("setup 최고 ${summary.bestSetup.ifBlank { "-" }} / 최악 ${summary.worstSetup.ifBlank { "-" }}")
             }
         }
     }
@@ -323,10 +349,13 @@ private fun HistoryCard(item: RecommendationItem) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("${item.name}(${item.code}) | ${item.sector}/${item.strategyType}", fontWeight = FontWeight.Bold)
-            Text("추천일 ${item.scanDate} / 점수 ${formatNumber(item.scoreAtRecommendation)}")
-            Text("추천가 ${formatPrice(item.entry)} / 현재가 ${formatPrice(item.latestPrice)}")
+            Text("추천일 ${item.scanDate} / 보유 ${item.holdingDays}일 / 상태 ${statusLabel(item.status)}")
+            Text("점수 ${formatNumber(item.scoreAtRecommendation)} / 추천가 ${formatPrice(item.entry)} / 현재가 ${formatPrice(item.latestPrice)}")
             Text("손익 ${formatSignedPrice(item.pnlKrwPerShare)} / ${item.pnlPct?.let { formatSignedPercent(it) } ?: "-"}")
             Text("목표 ${formatPrice(item.target1)} → ${formatPrice(item.target2)} / 손절 ${formatPrice(item.stopLoss)}")
+            if (item.status == "hit_stop") Text("경고: 손절가 도달")
+            if (item.status == "hit_target1" || item.status == "hit_target2") Text("목표 도달: ${statusLabel(item.status)}")
+            if (item.statusDetail.isNotBlank()) Text("상태근거: ${item.statusDetail}", style = MaterialTheme.typography.bodySmall)
             Text("근거: ${item.reason}")
         }
     }
@@ -406,6 +435,7 @@ private fun InfoCard(text: String) {
 private suspend fun fetchSnapshot(): StockSnapshot = withContext(Dispatchers.IO) { parseSnapshot(JSONObject(httpJson("GET", LATEST_URL, null, null))) }
 private suspend fun fetchRules(): KrShortRules = withContext(Dispatchers.IO) { parseRules(JSONObject(httpJson("GET", RULES_URL, null, null)).optJSONObject("rules") ?: JSONObject()) }
 private suspend fun fetchHistory(): RecommendationHistory = withContext(Dispatchers.IO) { parseHistory(JSONObject(httpJson("GET", HISTORY_URL, null, null))) }
+private suspend fun fetchPerformanceOrNull(): RecommendationPerformance? = withContext(Dispatchers.IO) { runCatching { parsePerformance(JSONObject(httpJson("GET", PERFORMANCE_URL, null, null))) }.getOrNull() }
 private suspend fun fetchBacktestOrNull(): KrBacktestReport? = withContext(Dispatchers.IO) { runCatching { parseBacktest(JSONObject(httpJson("GET", BACKTEST_URL, null, null))) }.getOrNull() }
 private suspend fun postRules(rules: KrShortRules, editKey: String): KrShortRules = withContext(Dispatchers.IO) { parseRules(JSONObject(httpJson("POST", RULES_URL, rules.toJson().toString(), editKey)).optJSONObject("rules") ?: JSONObject()) }
 private suspend fun runScan(editKey: String): RunScanResult = withContext(Dispatchers.IO) { RunScanResult(JSONObject(httpJson("POST", RUN_SCAN_URL, "{}", editKey)).optInt("kr_short_count", 0)) }
@@ -448,52 +478,40 @@ private fun parseSnapshot(json: JSONObject): StockSnapshot {
     return StockSnapshot(json.optString("created_at_kst", "-"), json.optString("mode", "unknown"), quality.optDouble("kr_short_quote_ok_rate", 0.0), quality.optInt("kr_short_quote_ok", 0), quality.optInt("kr_short_total", stocks.size), stocks, parseSectorSnapshot(json))
 }
 
+private fun parsePerformance(json: JSONObject): RecommendationPerformance {
+    val summary = json.optJSONObject("summary") ?: JSONObject()
+    val bySetup = summary.optJSONObject("by_strategy_type") ?: JSONObject()
+    return RecommendationPerformance(
+        json.optString("created_at_kst", "-"),
+        RecommendationPerformanceSummary(
+            summary.optInt("total_recommendations", 0),
+            summary.optInt("measurable_count", 0),
+            summary.optDouble("avg_pnl_pct", 0.0),
+            summary.optDouble("median_pnl_pct", 0.0),
+            summary.optDouble("win_rate", 0.0),
+            summary.optDouble("hit_stop_rate", 0.0),
+            summary.optDouble("hit_target1_rate", 0.0),
+            summary.optDouble("hit_target2_rate", 0.0),
+            bestSetupText(bySetup, true),
+            bestSetupText(bySetup, false)
+        )
+    )
+}
+
+private fun bestSetupText(obj: JSONObject, best: Boolean): String {
+    val names = obj.keys().asSequence().toList()
+    if (names.isEmpty()) return ""
+    val picked = names.map { name -> name to (obj.optJSONObject(name)?.optDouble("avg_pnl_pct", 0.0) ?: 0.0) }.let { rows -> if (best) rows.maxByOrNull { it.second } else rows.minByOrNull { it.second } }
+    return picked?.let { "${it.first} ${formatSignedPercent(it.second)}" } ?: ""
+}
+
 private fun parseStockStrategy(json: JSONObject): KrStockStrategy {
     val metrics = json.optJSONObject("metrics") ?: JSONObject()
-    return KrStockStrategy(
-        json.optString("code", ""),
-        json.optString("name", ""),
-        json.optString("sector", "기타"),
-        json.optString("action", "관망"),
-        json.optString("action_reason", ""),
-        json.optDouble("score", 0.0),
-        json.optDouble("threshold", 0.0),
-        json.optString("setup", ""),
-        json.optDouble("current_price", 0.0),
-        json.optString("price_basis", "unknown"),
-        json.optString("price_timestamp", "unknown"),
-        json.optDouble("entry", 0.0),
-        json.optDouble("stop_loss", 0.0),
-        json.optDouble("target1", 0.0),
-        json.optDouble("target2", 0.0),
-        json.optDouble("risk_pct", 0.0),
-        json.optDouble("position_size_krw", 0.0),
-        json.optString("reason", ""),
-        json.optString("failure_condition", ""),
-        metrics.optDouble("rsi14", 0.0),
-        metrics.optDouble("gap_ma20_pct", 0.0),
-        metrics.optDouble("momentum_20d_pct", 0.0)
-    )
+    return KrStockStrategy(json.optString("code", ""), json.optString("name", ""), json.optString("sector", "기타"), json.optString("action", "관망"), json.optString("action_reason", ""), json.optDouble("score", 0.0), json.optDouble("threshold", 0.0), json.optString("setup", ""), json.optDouble("current_price", 0.0), json.optString("price_basis", "unknown"), json.optString("price_timestamp", "unknown"), json.optDouble("entry", 0.0), json.optDouble("stop_loss", 0.0), json.optDouble("target1", 0.0), json.optDouble("target2", 0.0), json.optDouble("risk_pct", 0.0), json.optDouble("position_size_krw", 0.0), json.optString("reason", ""), json.optString("failure_condition", ""), metrics.optDouble("rsi14", 0.0), metrics.optDouble("gap_ma20_pct", 0.0), metrics.optDouble("momentum_20d_pct", 0.0))
 }
 
-private fun parseBacktest(json: JSONObject): KrBacktestReport {
-    return KrBacktestReport(
-        json.optString("created_at_kst", "-"),
-        json.optBoolean("accepted", false),
-        json.optDouble("improvement", 0.0),
-        parseBacktestSummary(json.optJSONObject("base_summary") ?: JSONObject()),
-        parseBacktestSummary(json.optJSONObject("best_summary") ?: JSONObject())
-    )
-}
-
-private fun parseBacktestSummary(json: JSONObject): KrBacktestSummary = KrBacktestSummary(
-    json.optInt("trades", 0),
-    json.optDouble("avg_return_pct", 0.0),
-    json.optDouble("win_rate", 0.0),
-    json.optDouble("profit_factor", 0.0),
-    json.optDouble("stop_rate", 0.0),
-    json.optDouble("target_rate", 0.0)
-)
+private fun parseBacktest(json: JSONObject): KrBacktestReport = KrBacktestReport(json.optString("created_at_kst", "-"), json.optBoolean("accepted", false), json.optDouble("improvement", 0.0), parseBacktestSummary(json.optJSONObject("base_summary") ?: JSONObject()), parseBacktestSummary(json.optJSONObject("best_summary") ?: JSONObject()))
+private fun parseBacktestSummary(json: JSONObject): KrBacktestSummary = KrBacktestSummary(json.optInt("trades", 0), json.optDouble("avg_return_pct", 0.0), json.optDouble("win_rate", 0.0), json.optDouble("profit_factor", 0.0), json.optDouble("stop_rate", 0.0), json.optDouble("target_rate", 0.0))
 
 private fun parseSectorSnapshot(json: JSONObject): List<KrSectorSnapshot> {
     val rows = json.optJSONArray("kr_sector_snapshot")
@@ -508,7 +526,7 @@ private fun parseHistory(json: JSONObject): RecommendationHistory {
     val rows = json.optJSONArray("items")
     val items = buildList {
         if (rows != null) for (i in 0 until rows.length()) rows.optJSONObject(i)?.let { item ->
-            add(RecommendationItem(item.optString("scan_date", ""), item.optString("recommended_at_kst", ""), item.optString("code", ""), item.optString("name", ""), item.optString("sector", "기타"), item.optString("strategy_type", ""), item.optDouble("entry", 0.0), item.optDouble("stop_loss", 0.0), item.optDouble("target1", 0.0), item.optDouble("target2", 0.0), item.optDouble("score_at_recommendation", 0.0), item.optDouble("latest_price", 0.0), item.optNullableDouble("pnl_pct"), item.optNullableDouble("pnl_krw_per_share"), item.optString("reason", "")))
+            add(RecommendationItem(item.optString("scan_date", ""), item.optString("recommended_at_kst", ""), item.optString("code", ""), item.optString("name", ""), item.optString("sector", "기타"), item.optString("strategy_type", ""), item.optDouble("entry", 0.0), item.optDouble("stop_loss", 0.0), item.optDouble("target1", 0.0), item.optDouble("target2", 0.0), item.optDouble("score_at_recommendation", 0.0), item.optDouble("latest_price", 0.0), item.optNullableDouble("pnl_pct"), item.optNullableDouble("pnl_krw_per_share"), item.optString("status", "open"), item.optString("status_detail", ""), item.optInt("holding_days", 0), item.optString("reason", "")))
         }
     }
     return RecommendationHistory(json.optString("updated_at_kst", "-"), items)
@@ -516,7 +534,7 @@ private fun parseHistory(json: JSONObject): RecommendationHistory {
 
 private fun JSONObject.optNullableDouble(key: String): Double? = if (has(key) && !isNull(key)) optDouble(key) else null
 
-private fun parseRules(json: JSONObject): KrShortRules = KrShortRules(json.optInt("version", 1), json.optDouble("score_threshold", 62.0), json.optDouble("min_risk_pct", 1.5), json.optDouble("max_risk_pct", 12.0), json.optDouble("max_entry_gap_pct", 3.5), json.optDouble("max_gap_ma20_pct", 12.0), json.optDouble("surge_threshold_pct", 15.0), json.optInt("hold_days", 10))
+private fun parseRules(json: JSONObject): KrShortRules = KrShortRules(json.optInt("version", 1), json.optDouble("score_threshold", 55.0), json.optDouble("min_risk_pct", 1.5), json.optDouble("max_risk_pct", 12.0), json.optDouble("max_entry_gap_pct", 3.5), json.optDouble("max_gap_ma20_pct", 12.0), json.optDouble("surge_threshold_pct", 12.0), json.optInt("hold_days", 10))
 private fun KrShortRules.toJson(): JSONObject = JSONObject().apply { put("rules", JSONObject().apply { put("score_threshold", scoreThreshold); put("min_risk_pct", minRiskPct); put("max_risk_pct", maxRiskPct); put("max_entry_gap_pct", maxEntryGapPct); put("max_gap_ma20_pct", maxGapMa20Pct); put("surge_threshold_pct", surgeThresholdPct); put("hold_days", holdDays) }) }
 
 private data class StockSnapshot(val createdAtKst: String, val mode: String, val quoteOkRate: Double, val quoteOk: Int, val total: Int, val stocks: List<KrShortStock>, val sectors: List<KrSectorSnapshot>)
@@ -524,12 +542,15 @@ private data class KrSectorSnapshot(val sector: String, val sectorRank: Int?, va
 private data class KrStockStrategy(val code: String, val name: String, val sector: String, val action: String, val actionReason: String, val score: Double, val threshold: Double, val setup: String, val currentPrice: Double, val priceBasis: String, val priceTimestamp: String, val entry: Double, val stopLoss: Double, val target1: Double, val target2: Double, val riskPct: Double, val positionSizeKrw: Double, val reason: String, val failureCondition: String, val rsi14: Double, val gapMa20Pct: Double, val momentum20dPct: Double)
 private data class KrBacktestReport(val createdAtKst: String, val accepted: Boolean, val improvement: Double, val baseSummary: KrBacktestSummary, val bestSummary: KrBacktestSummary)
 private data class KrBacktestSummary(val trades: Int, val avgReturnPct: Double, val winRate: Double, val profitFactor: Double, val stopRate: Double, val targetRate: Double)
+private data class RecommendationPerformance(val createdAtKst: String, val summary: RecommendationPerformanceSummary)
+private data class RecommendationPerformanceSummary(val totalRecommendations: Int, val measurableCount: Int, val avgPnlPct: Double, val medianPnlPct: Double, val winRate: Double, val hitStopRate: Double, val hitTarget1Rate: Double, val hitTarget2Rate: Double, val bestSetup: String, val worstSetup: String)
 private data class KrShortStock(val code: String, val name: String, val sector: String, val strategyType: String, val currentPrice: Double, val priceBasis: String, val priceTimestamp: String, val quoteSource: String, val score: Double, val entry: Double, val stopLoss: Double, val target1: Double, val target2: Double, val riskPct: Double, val reason: String, val failureCondition: String)
 private data class KrShortRules(val version: Int, val scoreThreshold: Double, val minRiskPct: Double, val maxRiskPct: Double, val maxEntryGapPct: Double, val maxGapMa20Pct: Double, val surgeThresholdPct: Double, val holdDays: Int)
 private data class RunScanResult(val krShortCount: Int)
 private data class RecommendationHistory(val updatedAtKst: String, val items: List<RecommendationItem>)
-private data class RecommendationItem(val scanDate: String, val recommendedAtKst: String, val code: String, val name: String, val sector: String, val strategyType: String, val entry: Double, val stopLoss: Double, val target1: Double, val target2: Double, val scoreAtRecommendation: Double, val latestPrice: Double, val pnlPct: Double?, val pnlKrwPerShare: Double?, val reason: String)
+private data class RecommendationItem(val scanDate: String, val recommendedAtKst: String, val code: String, val name: String, val sector: String, val strategyType: String, val entry: Double, val stopLoss: Double, val target1: Double, val target2: Double, val scoreAtRecommendation: Double, val latestPrice: Double, val pnlPct: Double?, val pnlKrwPerShare: Double?, val status: String, val statusDetail: String, val holdingDays: Int, val reason: String)
 
+private fun statusLabel(status: String): String = when (status) { "hit_stop" -> "손절도달"; "hit_target1" -> "목표1도달"; "hit_target2" -> "목표2도달"; "time_exit_candidate" -> "시간청산검토"; else -> "진행중" }
 private fun formatPrice(value: Double): String = String.format("%,.0f", value)
 private fun formatNumber(value: Double): String = String.format("%.2f", value)
 private fun formatPercent(value: Double): String = String.format("%.1f%%", value * 100)
