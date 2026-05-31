@@ -48,7 +48,7 @@ def evolve_kr_short_rules(write: bool = False, max_symbols: int | None = None, a
     base_fitness = _fitness(base_summary)
     best_rules, best_summary, best_fitness = max(scored, key=lambda x: x[2], default=(base, base_summary, base_fitness))
     improvement = best_fitness - base_fitness
-    accepted = _passes_guardrails(best_rules, best_summary) and improvement >= base.min_improvement_score
+    accepted = _passes_guardrails(best_rules, best_summary) and improvement >= getattr(base, 'min_improvement_score', 0.05)
 
     result = {
         'created_at_kst': datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S %Z'),
@@ -112,14 +112,12 @@ def _backtest_one_symbol(hist: pd.DataFrame, row: dict, rules: KrShortRules) -> 
         ret60 = momentum(window['close'], 60)
         ret252 = momentum(window['close'], min(252, len(window) - 1))
 
-        sector_strength = float(row.get('sector_strength_score') or 50.0)
+        sector_strength = float(row.get('sector_strength_score') or 0.0)
         sector_rank = int(row.get('sector_rank') or 99)
-        market_rotation = float(row.get('market_rotation_score') or 50.0)
+        market_rotation = float(row.get('market_rotation_score') or 0.0)
         change_today = float(row.get('change_pct_today') or 0.0)
 
         setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w, high252)
-        if setup == 'watch':
-            continue
         score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct, sector_strength, sector_rank, market_rotation, change_today)
         if score < rules.score_threshold:
             continue
@@ -236,7 +234,7 @@ def _candidate_rules(base: KrShortRules) -> list[KrShortRules]:
     for score_threshold in sorted(set([base.score_threshold - 4, base.score_threshold - 2, base.score_threshold, base.score_threshold + 2, base.score_threshold + 4])):
         for max_gap in sorted(set([base.max_gap_ma20_pct - 3, base.max_gap_ma20_pct, base.max_gap_ma20_pct + 3])):
             for max_risk in sorted(set([base.max_risk_pct - 2, base.max_risk_pct, base.max_risk_pct + 2])):
-                if score_threshold < 55 or max_gap < 6 or max_risk < 5:
+                if score_threshold < 50 or max_gap < 6 or max_risk < 5:
                     continue
                 candidates.append(replace(base, score_threshold=float(score_threshold), max_gap_ma20_pct=float(max_gap), max_risk_pct=float(max_risk)))
     return candidates
@@ -253,21 +251,21 @@ def _fitness(summary: dict) -> float:
     stop_rate = summary.get('stop_rate', 1.0)
     win_rate = summary.get('win_rate', 0.0)
     return sample_penalty * (
-        avg_return * 0.35
-        + surge_precision * 8.0
-        + profit_factor * 1.2
-        - stop_rate * 2.0
-        + (win_rate - 0.50) * 10.0
+        avg_return * 0.40
+        + (win_rate - 0.50) * 12.0
+        + surge_precision * 6.0
+        + profit_factor * 1.0
+        - stop_rate * 2.5
     )
 
 
 def _passes_guardrails(rules: KrShortRules, summary: dict) -> bool:
     return (
         summary.get('trades', 0) >= rules.min_backtest_trades
-        and summary.get('win_rate', 0.0) >= 0.45
-        and summary.get('surge_precision', 0.0) >= rules.min_surge_precision
-        and summary.get('avg_return_pct', 0.0) >= rules.min_avg_return_pct
-        and summary.get('profit_factor', 0.0) >= rules.min_profit_factor
+        and summary.get('surge_precision', 0.0) >= getattr(rules, 'min_surge_precision', 0.15)
+        and summary.get('avg_return_pct', 0.0) >= getattr(rules, 'min_avg_return_pct', 0.3)
+        and summary.get('profit_factor', 0.0) >= getattr(rules, 'min_profit_factor', 1.05)
+        and summary.get('win_rate', 0.0) >= getattr(rules, 'min_win_rate', 0.45)
     )
 
 
