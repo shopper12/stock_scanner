@@ -258,12 +258,6 @@ class Handler(BaseHTTPRequestHandler):
         if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest', '/api/kr-stock-strategy', '/api/update-recommendation-pnl'}:
             self._send_json(404, {'ok': False, 'error': 'not_found', 'path': path})
             return
-        if not _write_enabled():
-            self._send_json(503, {'ok': False, 'error': 'write_disabled', 'message': 'Set ADMIN_TOKEN on the backend to enable write APIs.'})
-            return
-        if not _auth_ok(self):
-            self._send_json(401, {'ok': False, 'error': 'unauthorized', 'message': 'Missing or invalid X-Admin-Token.'})
-            return
         try:
             if path == '/api/kr-short-rules':
                 payload = self._read_body_json()
