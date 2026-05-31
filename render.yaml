@@ -12,7 +12,5 @@ services:
         value: "0"
       - key: TIMEZONE
         value: Asia/Seoul
-      - key: ADMIN_TOKEN
-        sync: false
       - key: KR_BACKTEST_MAX_SYMBOLS
         value: "60"
