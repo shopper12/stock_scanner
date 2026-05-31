@@ -17,7 +17,7 @@ MISSED_SURGE_COPY_PATH = REPORT_DIR / 'missed_surge_latest.json'
 
 
 def main() -> int:
-    api_base_url = os.getenv('STOCK_SCANNER_API_BASE_URL', DEFAULT_API_BASE_URL).rstrip('/')
+    api_base_url = (os.getenv('STOCK_SCANNER_API_BASE_URL') or DEFAULT_API_BASE_URL).strip().rstrip('/')
 
     max_symbols = _int_env('KR_BACKTEST_MAX_SYMBOLS', 60)
     write_rules = _bool_env('AUTO_EVOLVE_WRITE', True)
