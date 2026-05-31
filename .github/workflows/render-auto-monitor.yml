@@ -44,10 +44,12 @@ jobs:
       - name: Run Render auto monitor
         run: python tools/render_auto_monitor.py
 
-      - name: Upload monitor report
+      - name: Upload monitor reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: render-auto-monitor-report
-          path: reports/render_auto_monitor_latest.json
+          path: |
+            reports/render_auto_monitor_latest.json
+            reports/recommendation_performance_latest.json
           if-no-files-found: ignore
