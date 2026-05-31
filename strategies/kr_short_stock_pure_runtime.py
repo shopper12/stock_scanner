@@ -4,24 +4,57 @@ import os
 
 import pandas as pd
 
+from config import settings
 from data.market_data_fast import get_kr_stock_universe_fast
 from strategies import kr_short_stock as base
 
 _ORIGINAL_SCAN = base.scan_kr_short_stocks
 _ORIGINAL_RULES_LOADER = base.load_kr_short_rules
+_ORIGINAL_SETUP = base._setup
+_ORIGINAL_SCORE = base._score
 
 
 def scan_kr_short_stocks() -> pd.DataFrame:
     """Run KR short scanner with the fast KRX universe and pure top-N selection.
 
-    The actual scoring logic lives in strategies.kr_short_stock._score.
-    This wrapper must not override _score, otherwise score calibration/backtest fixes in
-    the base strategy will not affect the app runtime path.
+    Runtime path keeps the base scanner but patches two live-use behaviours:
+    - fast KRX universe instead of slow full-sector universe
+    - early repricing breakout detection for LG-type single-day surge moves
     """
     base.get_kr_stock_universe = get_kr_stock_universe_fast
     base.load_kr_short_rules = _load_runtime_rules
     base._select_diversified = _select_top_n
+    base._setup = _runtime_setup
+    base._score = _runtime_score
     return _ORIGINAL_SCAN()
+
+
+def _runtime_setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, drawdown60: float, drawdown52w: float, high252: float | None = None, ret5: float = 0.0, ret20: float = 0.0, volume_ratio: float = 0.0, value_ratio: float = 0.0, trade_value: float = 0.0, sector_rank: int = 99, market_rotation: float = 0.0, change_today: float = 0.0) -> str:
+    setup = _ORIGINAL_SETUP(price, prev_close, prev_ma20, ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w, high252, ret5, ret20, volume_ratio, value_ratio, trade_value, sector_rank, market_rotation, change_today)
+    if setup != 'watch':
+        return setup
+    early_repricing = (
+        price > ma20
+        and price > ma60
+        and change_today >= 4.0
+        and ret5 >= 0.02
+        and (volume_ratio >= 1.15 or value_ratio >= 1.15)
+        and trade_value >= settings.min_kr_trade_value_krw * 8.0
+        and (price / ma20 - 1.0) <= 0.26
+        and (market_rotation >= 50.0 or sector_rank <= 10 or trade_value >= settings.min_kr_trade_value_krw * 15.0)
+    )
+    if early_repricing:
+        return 'theme_repricing_breakout'
+    return setup
+
+
+def _runtime_score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, setup: str, max_gap_ma20_pct: float, sector_strength: float, sector_rank: int, market_rotation: float, change_today: float) -> float:
+    score = _ORIGINAL_SCORE(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, max_gap_ma20_pct, sector_strength, sector_rank, market_rotation, change_today)
+    if setup == 'theme_repricing_breakout' and change_today >= 4.0 and ret20 < 0.075:
+        score += 5.0
+    if setup == 'theme_repricing_breakout' and trade_value >= settings.min_kr_trade_value_krw * 15.0:
+        score += 3.0
+    return max(0.0, min(score, 100.0))
 
 
 def _load_runtime_rules():
