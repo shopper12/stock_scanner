@@ -29,6 +29,38 @@ def init_db() -> None:
                 payload TEXT NOT NULL
             )
         ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS recommendations (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                scan_date TEXT NOT NULL,
+                code TEXT NOT NULL,
+                name TEXT,
+                sector TEXT,
+                setup TEXT,
+                score REAL,
+                entry_price REAL,
+                stop_price REAL,
+                target1 REAL,
+                target2 REAL,
+                hold_days INTEGER DEFAULT 10,
+                snapshot TEXT,
+                status TEXT DEFAULT 'open'
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS recommendation_outcomes (
+                id TEXT PRIMARY KEY,
+                closed_at TEXT,
+                close_price REAL,
+                exit_reason TEXT,
+                realized_return_pct REAL,
+                mfe_pct REAL,
+                mae_pct REAL,
+                days_held INTEGER,
+                FOREIGN KEY (id) REFERENCES recommendations(id)
+            )
+        ''')
         conn.commit()
 
 
