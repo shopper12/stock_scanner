@@ -86,6 +86,7 @@ def update_recommendation_history(created_at_kst: str, kr_short_rows: list[dict]
             'reason': row.get('reason', ''),
             'failure_condition': row.get('failure_condition', ''),
         }
+        _save_recommendation_for_tracking(scan_date, row, code)
     merged = sorted(by_key.values(), key=lambda x: (x.get('scan_date', ''), x.get('score_at_recommendation') or 0), reverse=True)
     out = {
         'schema_version': 1,
@@ -94,6 +95,27 @@ def update_recommendation_history(created_at_kst: str, kr_short_rows: list[dict]
     }
     HISTORY_REPORT_PATH.write_text(json.dumps(out, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
     return out
+
+
+def _save_recommendation_for_tracking(scan_date: str, row: dict, code: str) -> None:
+    try:
+        from database.recommendation_tracker import save_recommendation
+        save_recommendation({
+            'scan_date': scan_date,
+            'code': code,
+            'name': row.get('name', ''),
+            'sector': row.get('sector', '기타'),
+            'setup': row.get('strategy_type', ''),
+            'score': row.get('score'),
+            'entry_price': float(row.get('entry') or 0),
+            'stop_price': float(row.get('stop_loss') or 0),
+            'target1': float(row.get('target1') or 0),
+            'target2': float(row.get('target2') or 0),
+            'hold_days': 10,
+            'snapshot': row,
+        })
+    except Exception as exc:
+        print(f'[scan_once] recommendation tracker save skipped: {exc}')
 
 
 def _read_history() -> dict:
