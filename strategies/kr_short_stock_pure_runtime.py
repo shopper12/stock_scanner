@@ -8,6 +8,8 @@ from config import settings
 from data.market_data_fast import get_kr_stock_universe_fast
 from strategies import kr_short_stock as base
 
+MIN_TRADE_VALUE_KRW = 5_000_000_000
+
 _ORIGINAL_SCAN = base.scan_kr_short_stocks
 _ORIGINAL_RULES_LOADER = base.load_kr_short_rules
 _ORIGINAL_SETUP = base._setup
@@ -20,6 +22,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
     Runtime path keeps the base scanner but patches live-use behaviours:
     - fast KRX universe instead of slow full-sector universe
     - early repricing breakout detection for LG-type single-day surge moves
+    - hard liquidity exclusion for non-tradable rows
     - final exclusion of low-volume watch rows
     """
     base.get_kr_stock_universe = get_kr_stock_universe_fast
@@ -28,7 +31,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
     base._setup = _runtime_setup
     base._score = _runtime_score
     scanned = _ORIGINAL_SCAN()
-    return _drop_low_volume_watch(scanned)
+    return _drop_untradable_rows(scanned)
 
 
 def _runtime_setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, drawdown60: float, drawdown52w: float, high252: float | None = None, ret5: float = 0.0, ret20: float = 0.0, volume_ratio: float = 0.0, value_ratio: float = 0.0, trade_value: float = 0.0, sector_rank: int = 99, market_rotation: float = 0.0, change_today: float = 0.0) -> str:
@@ -52,6 +55,12 @@ def _runtime_setup(price: float, prev_close: float, prev_ma20: float, ma20: floa
 
 def _runtime_score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, setup: str, max_gap_ma20_pct: float, sector_strength: float, sector_rank: int, market_rotation: float, change_today: float) -> float:
     score = _ORIGINAL_SCORE(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, max_gap_ma20_pct, sector_strength, sector_rank, market_rotation, change_today)
+    if trade_value < MIN_TRADE_VALUE_KRW:
+        score -= 60.0
+    elif trade_value > 0:
+        score += min((trade_value / 50_000_000_000) * 3.0, 3.0)
+    if value_ratio <= 0:
+        score -= 50.0
     if setup == 'watch' and volume_ratio < 0.80:
         score -= 20.0
     if setup == 'watch' and value_ratio < 0.80 and volume_ratio < 0.80:
@@ -63,15 +72,19 @@ def _runtime_score(price: float, ma20: float, ma60: float, ma120: float, ma200: 
     return max(0.0, min(score, 100.0))
 
 
-def _drop_low_volume_watch(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty or 'strategy_type' not in df.columns:
+def _drop_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
         return df
-    volume = pd.to_numeric(df.get('volume_ratio_20d'), errors='coerce').fillna(0.0)
-    value = pd.to_numeric(df.get('trade_value_ratio_20d'), errors='coerce').fillna(0.0)
-    setup = df['strategy_type'].astype(str)
+    out = df.copy()
+    trade_value = pd.to_numeric(out.get('trade_value_krw'), errors='coerce').fillna(0.0)
+    volume = pd.to_numeric(out.get('volume_ratio_20d'), errors='coerce').fillna(0.0)
+    value = pd.to_numeric(out.get('trade_value_ratio_20d'), errors='coerce').fillna(0.0)
+    setup = out.get('strategy_type', pd.Series([''] * len(out))).astype(str)
+    liquid = trade_value >= MIN_TRADE_VALUE_KRW
+    valid_value_ratio = value > 0.0
     low_volume_watch = (setup == 'watch') & (volume < 0.80)
     low_value_and_volume_watch = (setup == 'watch') & (value < 0.80) & (volume < 0.80)
-    return df.loc[~(low_volume_watch | low_value_and_volume_watch)].reset_index(drop=True)
+    return out.loc[liquid & valid_value_ratio & ~(low_volume_watch | low_value_and_volume_watch)].reset_index(drop=True)
 
 
 def _load_runtime_rules():
