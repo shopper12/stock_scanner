@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 REPORT_DIR = ROOT_DIR / 'reports'
 REPORT_PATH = REPORT_DIR / 'render_auto_monitor_latest.json'
 PERFORMANCE_COPY_PATH = REPORT_DIR / 'recommendation_performance_latest.json'
+MISSED_SURGE_COPY_PATH = REPORT_DIR / 'missed_surge_latest.json'
 
 
 def main() -> int:
@@ -25,12 +27,13 @@ def main() -> int:
         'api_base_url': api_base_url,
         'write_rules': write_rules,
         'max_symbols': max_symbols,
-        'sequence': 'performance_before_scan -> scan -> performance_after_scan -> backtest -> fetch_reports',
+        'sequence': 'performance_before_scan -> scan -> missed_surge_review -> performance_after_scan -> backtest -> fetch_reports',
     }
 
     result['health'] = _api_get(api_base_url, '/health')
     result['performance_before_scan'] = _api_post(api_base_url, '/api/update-recommendation-pnl', {})
     result['scan'] = _api_post(api_base_url, '/api/run-scan', {})
+    result['missed_surge_review'] = _run_local_missed_surge_review()
     result['performance_after_scan'] = _api_post(api_base_url, '/api/update-recommendation-pnl', {})
     result['backtest'] = _api_post(api_base_url, '/api/run-backtest', {'max_symbols': max_symbols, 'write': write_rules})
     result['latest'] = _api_get(api_base_url, '/api/latest')
@@ -47,6 +50,17 @@ def main() -> int:
     print(message)
     _send_telegram_if_configured(message)
     return 0
+
+
+def _run_local_missed_surge_review() -> dict[str, Any]:
+    try:
+        from analysis.missed_surge_review import build_missed_surge_review
+        report = build_missed_surge_review(limit=30)
+        if report:
+            MISSED_SURGE_COPY_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
+        return {'ok': True, 'review_count': report.get('review_count', 0), 'top': (report.get('missed_surge_candidates') or [])[:5]}
+    except Exception as exc:
+        return {'ok': False, 'error': exc.__class__.__name__, 'message': str(exc)}
 
 
 def _api_get(api_base_url: str, path: str) -> dict[str, Any]:
@@ -81,6 +95,7 @@ def _build_message(result: dict[str, Any]) -> str:
     latest = result.get('latest') or {}
     backtest = result.get('backtest') or {}
     performance = result.get('performance') or {}
+    missed = result.get('missed_surge_review') or {}
     perf_summary = performance.get('summary') or {}
     rows = latest.get('kr_short_stocks') or []
     top = rows[0] if rows else {}
@@ -88,6 +103,11 @@ def _build_message(result: dict[str, Any]) -> str:
     base = backtest.get('base_summary') or {}
     by_strategy = perf_summary.get('by_strategy_type') or {}
     best_setup, worst_setup = _best_worst_setup(by_strategy)
+    missed_top = missed.get('top') or []
+    missed_text = '-'
+    if missed_top:
+        first = missed_top[0]
+        missed_text = f"{first.get('name', '-')}({first.get('code', '-')}) {first.get('change_pct_today', '-')}% / {first.get('miss_reason', '-')}"
     lines = [
         '[Stock Scanner 자동 모니터링]',
         f"시각: {latest.get('created_at_kst') or result.get('created_at_utc')}",
@@ -95,12 +115,13 @@ def _build_message(result: dict[str, Any]) -> str:
         f"진입/손절/목표: {top.get('entry', '-')} / {top.get('stop_loss', '-')} / {top.get('target1', '-')}→{top.get('target2', '-')}",
         f"추천성과: 평균 {perf_summary.get('avg_pnl_pct', '-')}% / 승률 {_pct(perf_summary.get('win_rate'))} / 손절 {_pct(perf_summary.get('hit_stop_rate'))} / 목표1 {_pct(perf_summary.get('hit_target1_rate'))} / 목표2 {_pct(perf_summary.get('hit_target2_rate'))}",
         f"setup 성과: 최고 {best_setup} / 최악 {worst_setup}",
+        f"놓친 급등 후보: {missed.get('review_count', '-')}개 / 1위 {missed_text}",
         f"백테스트: accepted={backtest.get('accepted')} improvement={backtest.get('improvement')}",
         f"기준: trades={base.get('trades', '-')} avg={base.get('avg_return_pct', '-')} win={base.get('win_rate', '-') } PF={base.get('profit_factor', '-')}",
         f"최선: trades={best.get('trades', '-')} avg={best.get('avg_return_pct', '-')} win={best.get('win_rate', '-') } PF={best.get('profit_factor', '-')}",
         f"룰 자동반영: {result.get('write_rules')}",
     ]
-    for key, label in [('performance_before_scan', '성과갱신(전)'), ('scan', '스캔'), ('performance_after_scan', '성과갱신(후)'), ('backtest', '백테스트')]:
+    for key, label in [('performance_before_scan', '성과갱신(전)'), ('scan', '스캔'), ('missed_surge_review', '놓친급등검증'), ('performance_after_scan', '성과갱신(후)'), ('backtest', '백테스트')]:
         if not result.get(key, {}).get('ok', False):
             lines.append(f"{label} 오류: {result.get(key)}")
     return '\n'.join(lines)
