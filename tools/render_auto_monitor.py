@@ -30,10 +30,10 @@ def main() -> int:
     }
 
     result['health'] = _api_get(api_base_url, '/health')
-    result['performance_before_scan'] = _api_post(api_base_url, '/api/update-recommendation-pnl', {}, admin_token)
-    result['scan'] = _api_post(api_base_url, '/api/run-scan', {}, admin_token)
-    result['performance_after_scan'] = _api_post(api_base_url, '/api/update-recommendation-pnl', {}, admin_token)
-    result['backtest'] = _api_post(api_base_url, '/api/run-backtest', {'max_symbols': max_symbols, 'write': write_rules}, admin_token)
+    result['performance_before_scan'] = _api_post(api_base_url, '/api/update-recommendation-pnl', {})
+    result['scan'] = _api_post(api_base_url, '/api/run-scan', {})
+    result['performance_after_scan'] = _api_post(api_base_url, '/api/update-recommendation-pnl', {})
+    result['backtest'] = _api_post(api_base_url, '/api/run-backtest', {'max_symbols': max_symbols, 'write': write_rules})
     result['latest'] = _api_get(api_base_url, '/api/latest')
     result['history'] = _api_get(api_base_url, '/api/recommendation-history')
     result['performance'] = _api_get(api_base_url, '/api/recommendation-performance')
