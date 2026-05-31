@@ -11,8 +11,7 @@ from data import mock_data
 from data.market_data import get_kr_stock_history, _infer_sector, _recent_kr_dates
 from data.realtime_price import try_kr_realtime_quote
 from strategies.kr_short_rules import load_kr_short_rules
-from strategies.kr_short_stock import _entry, _failure_condition, _format_date, _max_position_pct, _prepare_history, _ratio, _reason, _rsi14, _setup, _stop
-from strategies.kr_short_stock_pure_runtime import _pure_score_threshold, _score_pure
+from strategies.kr_short_stock import _entry, _failure_condition, _format_date, _max_position_pct, _prepare_history, _ratio, _reason, _rsi14, _score, _setup, _stop
 from strategies.metrics import momentum
 
 
@@ -65,8 +64,8 @@ def analyze_kr_stock_strategy(query: str) -> dict:
     ret252 = price / float(hist['close'].iloc[-252]) - 1.0 if len(hist) > 252 else momentum(hist['close'], min(252, len(hist) - 1))
 
     setup = _setup(price, float(prev['close']), float(prev['ma20']), ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w, high252)
-    score = _score_pure(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct, 0.0, 0, 0.0, 0.0)
-    threshold = _pure_score_threshold()
+    score = _score(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, rules.max_gap_ma20_pct, 0.0, 99, 0.0, 0.0)
+    threshold = float(getattr(rules, 'score_threshold', 55.0) or 55.0)
 
     entry = _entry(price, high20, ma20, setup, high252)
     stop = _stop(price, ma20, ma60, ma200, low10, atr14, setup)
@@ -83,7 +82,7 @@ def analyze_kr_stock_strategy(query: str) -> dict:
 
     action, action_reason = _action(score, threshold, setup, risk_pct, rules.min_risk_pct, rules.max_risk_pct, entry, price, rules.max_entry_gap_pct)
     history_last_date = _format_date(latest.get('date'))
-    reason = _reason(target['sector'], setup, volume_ratio, value_ratio, ret20, drawdown60, drawdown52w, gap_ma20, rsi14, rules.max_gap_ma20_pct, 0, 0.0, 0.0, 0.0)
+    reason = _reason(target['sector'], setup, volume_ratio, value_ratio, ret20, drawdown60, drawdown52w, gap_ma20, rsi14, rules.max_gap_ma20_pct, 99, 0.0, 0.0, 0.0)
 
     return {
         'ok': True,
@@ -205,8 +204,6 @@ def _ticker_candidates() -> list[dict]:
 
 
 def _action(score: float, threshold: float, setup: str, risk_pct: float, min_risk_pct: float, max_risk_pct: float, entry: float, price: float, max_entry_gap_pct: float) -> tuple[str, str]:
-    if setup == 'watch':
-        return '관망/매수금지', '명확한 진입 setup이 없어 watch 상태입니다.'
     if score < threshold:
         return '관망', f'점수 {score:.1f}가 기준 {threshold:.1f} 미만입니다.'
     if risk_pct < min_risk_pct:
