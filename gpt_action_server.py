@@ -16,27 +16,6 @@ APP_VERSION = "1.0.0"
 MAX_ITEMS = 10
 
 
-def _expected_token() -> str:
-    return (
-        os.getenv("CHATGPT_ACTION_API_KEY")
-        or os.getenv("STOCK_SCANNER_ACTION_API_KEY")
-        or ""
-    ).strip()
-
-
-def _auth_ok(handler: BaseHTTPRequestHandler) -> bool:
-    expected = _expected_token()
-    if not expected:
-        return False
-
-    supplied = handler.headers.get("X-API-Key", "").strip()
-    auth = handler.headers.get("Authorization", "").strip()
-
-    if auth.lower().startswith("bearer "):
-        supplied = auth.split(" ", 1)[1].strip()
-
-    return supplied == expected
-
 
 def _truthy(value) -> bool:
     if isinstance(value, bool):
@@ -152,28 +131,6 @@ class Handler(BaseHTTPRequestHandler):
 
         if path != "/api/chatgpt-picks":
             self._send_json(404, {"ok": False, "error": "not_found", "path": path})
-            return
-
-        if not _expected_token():
-            self._send_json(
-                503,
-                {
-                    "ok": False,
-                    "error": "auth_not_configured",
-                    "message": "Set CHATGPT_ACTION_API_KEY.",
-                },
-            )
-            return
-
-        if not _auth_ok(self):
-            self._send_json(
-                401,
-                {
-                    "ok": False,
-                    "error": "unauthorized",
-                    "message": "Missing or invalid bearer token.",
-                },
-            )
             return
 
         try:
