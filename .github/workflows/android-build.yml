@@ -40,30 +40,9 @@ jobs:
         run: |
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/stock-scanner-upload.jks"
 
-      - name: Patch release build metadata and update link
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          gradle = Path('app/build.gradle.kts')
-          text = gradle.read_text(encoding='utf-8')
-          text = text.replace('versionCode = 3', 'versionCode = 5')
-          text = text.replace('versionName = "1.2"', 'versionName = "1.4"')
-          gradle.write_text(text, encoding='utf-8')
-
-          main = Path('app/src/main/java/com/stockscanner/MainActivity.kt')
-          text = main.read_text(encoding='utf-8')
-          text = text.replace(
-              'https://github.com/shopper12/stock_scanner/actions/workflows/android-build.yml',
-              'https://github.com/shopper12/stock_scanner/releases/tag/app-latest',
-          )
-          text = text.replace(
-              "업데이트 방식: GitHub 수정 후 Android Build가 자동 실행됩니다. '업데이트/APK' 버튼을 누르고 최신 성공 빌드의 stock-scanner-debug-apk를 내려받아 설치하세요.",
-              "업데이트 방식: GitHub 수정 후 Android Build가 자동 실행되고, 최신 서명 APK가 app-latest Release에 올라갑니다. '업데이트/APK' 버튼을 누른 뒤 stock-scanner-latest.apk를 받아 설치하세요.",
-          )
-          main.write_text(text, encoding='utf-8')
-          PY
-
+- name: Patch release build metadata
+  run: python tools/patch_android_release_metadata.py
+  
       - name: Build signed release APK
         env:
           ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/stock-scanner-upload.jks
