@@ -17,13 +17,12 @@ _ORIGINAL_SCORE = base._score
 
 
 def scan_kr_short_stocks() -> pd.DataFrame:
-    """Run KR short scanner with the fast KRX universe and pure top-N selection.
+    """Run KR short scanner across the full liquid KRX universe.
 
-    Runtime path keeps the base scanner but patches live-use behaviours:
-    - fast KRX universe instead of slow full-sector universe
-    - early repricing breakout detection for LG-type single-day surge moves
-    - hard liquidity exclusion for non-tradable rows
-    - final exclusion of low-volume watch rows
+    Runtime path deliberately removes sector-based recommendation logic:
+    - no sector diversification picker
+    - no sector_rank / sector_strength / market_rotation score bonus
+    - selection is based on stock-level price, trend, volume, liquidity and risk only
     """
     base.get_kr_stock_universe = get_kr_stock_universe_fast
     base.load_kr_short_rules = _load_runtime_rules
@@ -35,7 +34,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
 
 
 def _runtime_setup(price: float, prev_close: float, prev_ma20: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, drawdown60: float, drawdown52w: float, high252: float | None = None, ret5: float = 0.0, ret20: float = 0.0, volume_ratio: float = 0.0, value_ratio: float = 0.0, trade_value: float = 0.0, sector_rank: int = 99, market_rotation: float = 0.0, change_today: float = 0.0) -> str:
-    setup = _ORIGINAL_SETUP(price, prev_close, prev_ma20, ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w, high252, ret5, ret20, volume_ratio, value_ratio, trade_value, sector_rank, market_rotation, change_today)
+    setup = _ORIGINAL_SETUP(price, prev_close, prev_ma20, ma20, ma60, ma120, ma200, high20, high60, drawdown60, drawdown52w, high252, ret5, ret20, volume_ratio, value_ratio, trade_value, 99, 0.0, change_today)
     if setup != 'watch':
         return setup
     early_repricing = (
@@ -46,7 +45,7 @@ def _runtime_setup(price: float, prev_close: float, prev_ma20: float, ma20: floa
         and (volume_ratio >= 1.15 or value_ratio >= 1.15)
         and trade_value >= settings.min_kr_trade_value_krw * 8.0
         and (price / ma20 - 1.0) <= 0.26
-        and (market_rotation >= 50.0 or sector_rank <= 10 or trade_value >= settings.min_kr_trade_value_krw * 15.0)
+        and (trade_value >= settings.min_kr_trade_value_krw * 15.0 or value_ratio >= 1.8 or volume_ratio >= 1.8)
     )
     if early_repricing:
         return 'theme_repricing_breakout'
@@ -54,7 +53,7 @@ def _runtime_setup(price: float, prev_close: float, prev_ma20: float, ma20: floa
 
 
 def _runtime_score(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, high60: float, volume_ratio: float, value_ratio: float, trade_value: float, ret5: float, ret20: float, ret60: float, ret252: float, drawdown60: float, drawdown52w: float, gap_ma20: float, rsi14: float, setup: str, max_gap_ma20_pct: float, sector_strength: float, sector_rank: int, market_rotation: float, change_today: float) -> float:
-    score = _ORIGINAL_SCORE(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, max_gap_ma20_pct, sector_strength, sector_rank, market_rotation, change_today)
+    score = _ORIGINAL_SCORE(price, ma20, ma60, ma120, ma200, high20, high60, volume_ratio, value_ratio, trade_value, ret5, ret20, ret60, ret252, drawdown60, drawdown52w, gap_ma20, rsi14, setup, max_gap_ma20_pct, 0.0, 99, 0.0, change_today)
     if trade_value < MIN_TRADE_VALUE_KRW:
         score -= 60.0
     elif trade_value > 0:
@@ -84,7 +83,13 @@ def _drop_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
     valid_value_ratio = value > 0.0
     low_volume_watch = (setup == 'watch') & (volume < 0.80)
     low_value_and_volume_watch = (setup == 'watch') & (value < 0.80) & (volume < 0.80)
-    return out.loc[liquid & valid_value_ratio & ~(low_volume_watch | low_value_and_volume_watch)].reset_index(drop=True)
+    out = out.loc[liquid & valid_value_ratio & ~(low_volume_watch | low_value_and_volume_watch)].copy()
+    if out.empty:
+        return out.reset_index(drop=True)
+    out['sector_rank'] = 99
+    out['sector_strength_score'] = 0.0
+    out['market_rotation_score'] = 0.0
+    return out.sort_values(['score', 'trade_value_krw', 'change_pct_today'], ascending=[False, False, False]).reset_index(drop=True).head(_top_n())
 
 
 def _load_runtime_rules():
@@ -114,4 +119,4 @@ def _top_n() -> int:
 
 
 def _select_top_n(ranked: pd.DataFrame, max_items: int) -> pd.DataFrame:
-    return ranked.head(_top_n()).reset_index(drop=True)
+    return ranked.head(max(max_items, _top_n())).reset_index(drop=True)
