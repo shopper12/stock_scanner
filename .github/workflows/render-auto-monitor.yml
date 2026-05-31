@@ -1,0 +1,53 @@
+name: Render Auto Monitor
+
+on:
+  workflow_dispatch:
+    inputs:
+      write_rules:
+        description: 'Write accepted evolved rules to the Render backend runtime'
+        required: false
+        default: 'true'
+      max_symbols:
+        description: 'Max KR symbols for scheduled backtest'
+        required: false
+        default: '60'
+  schedule:
+    # KST 08:55, 15:05, 20:00 on weekdays
+    - cron: '55 23 * * 0-4'
+    - cron: '05 06 * * 1-5'
+    - cron: '00 11 * * 1-5'
+
+permissions:
+  contents: read
+
+env:
+  STOCK_SCANNER_API_BASE_URL: ${{ secrets.STOCK_SCANNER_API_BASE_URL }}
+  ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+  AUTO_EVOLVE_WRITE: ${{ github.event.inputs.write_rules || 'true' }}
+  KR_BACKTEST_MAX_SYMBOLS: ${{ github.event.inputs.max_symbols || '60' }}
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Render auto monitor
+        run: python tools/render_auto_monitor.py
+
+      - name: Upload monitor report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-auto-monitor-report
+          path: reports/render_auto_monitor_latest.json
+          if-no-files-found: ignore
