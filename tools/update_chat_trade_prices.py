@@ -19,10 +19,19 @@ from config import settings
 from data.realtime_price import try_kr_realtime_quote
 from data.trade_history_schema import read_trade_history, write_trade_history
 
-CRYPTO_BINANCE_SYMBOLS = {
-    'BTC': 'BTCUSDT',
-    'ETH': 'ETHUSDT',
-    'SOL': 'SOLUSDT',
+COINGECKO_IDS = {
+    'BTC': 'bitcoin',
+    'ETH': 'ethereum',
+    'SOL': 'solana',
+    'BNB': 'binancecoin',
+    'XRP': 'ripple',
+    'ADA': 'cardano',
+    'DOGE': 'dogecoin',
+    'AVAX': 'avalanche-2',
+    'DOT': 'polkadot',
+    'LINK': 'chainlink',
+    'MATIC': 'matic-network',
+    'POL': 'polygon-ecosystem-token',
 }
 
 
@@ -39,24 +48,38 @@ def _num(value: Any) -> float | None:
         return None
 
 
-def fetch_price(asset_type: str, ticker: str) -> tuple[float | None, str]:
+def fetch_price(asset_type: str, ticker: str, entry_mid: float | None = None) -> tuple[float | None, str, str | None]:
     asset_type = str(asset_type or '').strip().lower()
     ticker = str(ticker or '').strip().upper()
     if not ticker:
-        return None, 'missing_ticker'
+        return None, 'missing_ticker', None
     if asset_type in {'kr_stock', 'kr_etf'}:
         quote = try_kr_realtime_quote(ticker)
         if quote.get('ok') and quote.get('price'):
-            return float(quote['price']), str(quote.get('source') or 'kr_realtime_quote')
-        return None, str(quote.get('error') or 'kr_quote_failed')
+            price = float(quote['price'])
+            return price, str(quote.get('source') or 'kr_realtime_quote'), _split_suspicion_note(price, entry_mid)
+        return None, str(quote.get('error') or 'kr_quote_failed'), None
     if asset_type in {'us_equity', 'us_etf'}:
-        return _fetch_yfinance_price(ticker)
+        price, source = _fetch_yfinance_price(ticker)
+        return price, source, _split_suspicion_note(price, entry_mid)
     if asset_type == 'crypto':
-        return _fetch_crypto_price(ticker)
-    return None, f'unsupported_asset_type:{asset_type}'
+        price, source = _fetch_crypto_price(ticker)
+        return price, source, None
+    return None, f'unsupported_asset_type:{asset_type}', None
 
 
 def _fetch_yfinance_price(ticker: str) -> tuple[float | None, str]:
+    last_error = 'not_started'
+    try:
+        import yfinance as yf
+        raw = yf.download(ticker, period='5d', interval='1d', auto_adjust=True, progress=False)
+        if raw is not None and not raw.empty:
+            close = raw['Close'].dropna()
+            if not close.empty:
+                return float(close.iloc[-1]), 'yfinance_auto_adjust_close'
+        last_error = 'empty_auto_adjust_history'
+    except Exception as exc:
+        last_error = f'yfinance_auto_adjust_failed:{exc}'
     try:
         import yfinance as yf
         info = yf.Ticker(ticker).fast_info
@@ -64,32 +87,86 @@ def _fetch_yfinance_price(ticker: str) -> tuple[float | None, str]:
         if price:
             return float(price), 'yfinance_fast_info'
     except Exception as exc:
-        last_error = str(exc)
-    else:
-        last_error = 'empty_fast_info'
-    try:
-        import yfinance as yf
-        raw = yf.download(ticker, period='5d', interval='1d', auto_adjust=True, progress=False)
-        if raw is not None and not raw.empty:
-            return float(raw['Close'].dropna().iloc[-1]), 'yfinance_daily_close'
-    except Exception as exc:
-        last_error = f'{last_error} | {exc}'
+        last_error = f'{last_error} | fast_info_failed:{exc}'
     return None, last_error
 
 
 def _fetch_crypto_price(ticker: str) -> tuple[float | None, str]:
-    symbol = CRYPTO_BINANCE_SYMBOLS.get(ticker)
-    if symbol:
-        try:
-            resp = requests.get('https://api.binance.com/api/v3/ticker/price', params={'symbol': symbol}, timeout=10)
-            resp.raise_for_status()
+    symbol = _crypto_symbol(ticker)
+    coin_id = _coin_gecko_id(symbol)
+    try:
+        resp = requests.get(
+            'https://api.coingecko.com/api/v3/simple/price',
+            params={'ids': coin_id, 'vs_currencies': 'usd'},
+            headers={'User-Agent': 'stock-scanner'},
+            timeout=8,
+        )
+        if resp.status_code == 200:
             data = resp.json()
-            price = data.get('price')
+            price = data.get(coin_id, {}).get('usd')
             if price:
-                return float(price), 'binance_spot'
-        except Exception as exc:
-            return None, f'binance_failed:{exc}'
-    return None, f'unsupported_crypto:{ticker}'
+                return float(price), 'coingecko_simple_price'
+    except Exception as exc:
+        last_error = f'coingecko_failed:{exc}'
+    else:
+        last_error = f'coingecko_http:{resp.status_code}'
+
+    try:
+        import yfinance as yf
+        info = yf.Ticker(f'{symbol}-USD').fast_info
+        price = getattr(info, 'last_price', None) or info.get('last_price')
+        if price:
+            return float(price), 'yfinance_crypto_fast_info'
+    except Exception as exc:
+        last_error = f'{last_error} | yfinance_crypto_failed:{exc}'
+
+    try:
+        resp = requests.get(
+            'https://api.upbit.com/v1/ticker',
+            params={'markets': f'USDT-{symbol}'},
+            headers={'User-Agent': 'stock-scanner'},
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data and data[0].get('trade_price'):
+                return float(data[0]['trade_price']), 'upbit_usdt_ticker'
+    except Exception as exc:
+        last_error = f'{last_error} | upbit_failed:{exc}'
+    else:
+        last_error = f'{last_error} | upbit_http:{resp.status_code}'
+
+    return None, last_error
+
+
+def _crypto_symbol(ticker: str) -> str:
+    value = str(ticker or '').strip().upper()
+    for suffix in ('-USD', 'USDT', 'USD'):
+        if value.endswith(suffix):
+            value = value[: -len(suffix)]
+    return value
+
+
+def _coin_gecko_id(symbol: str) -> str:
+    return COINGECKO_IDS.get(symbol.upper(), symbol.lower())
+
+
+def _split_suspicion_note(price: float | None, entry_mid: float | None) -> str | None:
+    if price is None or not entry_mid or entry_mid <= 0:
+        return None
+    ratio = price / entry_mid
+    if ratio >= 5.0 or ratio <= 0.2:
+        return f'주식분할/병합 의심: current/entry ratio={ratio:.2f}. adjusted price 기준 수동 확인 필요'
+    return None
+
+
+def _append_note(row: dict[str, Any], note: str | None) -> None:
+    if not note:
+        return
+    existing = str(row.get('data_note') or '').strip()
+    if note in existing:
+        return
+    row['data_note'] = f'{existing} | {note}' if existing else note
 
 
 def recalc_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -97,16 +174,28 @@ def recalc_row(row: dict[str, Any]) -> dict[str, Any]:
     entry = _num(row.get('entry_mid'))
     target = _num(row.get('target1'))
     stop = _num(row.get('stop_loss'))
+    split_note = _split_suspicion_note(price, entry)
+    _append_note(row, split_note)
+
+    pnl_pct = None
     if price is not None and entry:
-        row['pnl_vs_entry_mid_pct'] = round((price / entry - 1.0) * 100, 2)
+        pnl_pct = round((price / entry - 1.0) * 100, 2)
+        row['pnl_vs_entry_mid_pct'] = pnl_pct
+        if abs(pnl_pct) > 200:
+            _append_note(row, '주식분할 의심 — 수동 확인 필요')
     if price is not None and target and price:
         row['distance_to_target1_pct'] = round((target / price - 1.0) * 100, 2)
     if price is not None and stop and price:
         row['distance_to_stop_pct'] = round((price / stop - 1.0) * 100, 2)
-    if price is not None and target and price >= target:
-        row['status'] = 'target1_hit'
-    elif price is not None and stop and price <= stop:
-        row['status'] = 'stop_hit'
+
+    split_suspected = bool(row.get('data_note') and '주식분할' in str(row.get('data_note')))
+    if not split_suspected:
+        if price is not None and target and price >= target:
+            row['status'] = 'target1_hit'
+        elif price is not None and stop and price <= stop:
+            row['status'] = 'stop_hit'
+        elif not row.get('status'):
+            row['status'] = 'open'
     elif not row.get('status'):
         row['status'] = 'open'
     return row
@@ -121,12 +210,14 @@ def update_prices(include_closed: bool = False) -> pd.DataFrame:
     for raw in df.to_dict('records'):
         row = dict(raw)
         status = str(row.get('status') or 'open')
+        entry = _num(row.get('entry_mid'))
         if include_closed or status == 'open':
-            price, source = fetch_price(str(row.get('asset_type')), str(row.get('ticker')))
+            price, source, note = fetch_price(str(row.get('asset_type')), str(row.get('ticker')), entry)
             if price is not None:
                 row['current_price'] = round(float(price), 6)
                 row['current_price_time'] = now
                 row['current_price_source'] = source
+                _append_note(row, note)
             else:
                 row['current_price_source'] = source
         rows.append(recalc_row(row))
