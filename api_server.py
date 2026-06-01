@@ -14,6 +14,7 @@ REPORT_DIR = ROOT_DIR / 'reports'
 LATEST_PATH = REPORT_DIR / 'latest.json'
 QUOTE_QUALITY_PATH = REPORT_DIR / 'quote_quality_latest.json'
 RECOMMENDATION_HISTORY_PATH = REPORT_DIR / 'recommendation_history.json'
+CHAT_RECOMMENDATION_HISTORY_PATH = REPORT_DIR / 'chat_recommendation_history.json'
 RECOMMENDATION_PERFORMANCE_PATH = REPORT_DIR / 'recommendation_performance_latest.json'
 BACKTEST_REPORT_PATH = REPORT_DIR / 'kr_short_evolution_latest.json'
 
@@ -157,8 +158,10 @@ def _performance_payload() -> tuple[int, dict]:
         data.setdefault('ok', True)
     return status, data
 
+
 def _write_enabled() -> bool:
     return True
+
 
 def _coerce_rule_value(key: str, raw):
     target_type = EDITABLE_RULE_FIELDS[key]
@@ -193,6 +196,53 @@ def _update_rules(data: dict) -> dict:
     return {'ok': True, 'changed': changed, 'rules': asdict(rules)}
 
 
+def _chatgpt_picks_payload(data: dict) -> dict:
+    from chat_picks import add_chat_recommendation, build_chat_recommendation_message, make_chat_recommendation
+    from notifier import send_telegram_message
+
+    raw_items = data.get('items')
+    if raw_items is None:
+        raw_items = [data]
+    if not isinstance(raw_items, list):
+        raise ValueError('items must be a list')
+    notify = _bool_value(data.get('notify', True))
+    title = str(data.get('title') or 'ChatGPT 자동작업 추천')
+    saved: list[dict] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        code = str(raw.get('code') or raw.get('ticker') or '').strip()
+        name = str(raw.get('name') or '').strip()
+        if not code or not name:
+            continue
+        entry = make_chat_recommendation(
+            code=code,
+            name=name,
+            market=str(raw.get('market') or 'KRX'),
+            sector=str(raw.get('sector') or '기타'),
+            strategy_type=str(raw.get('strategy_type') or raw.get('setup') or 'chatgpt_auto_pick'),
+            current_price=raw.get('current_price') or raw.get('price_at_recommendation'),
+            entry=raw.get('entry') or raw.get('entry_price'),
+            entry_low=raw.get('entry_low'),
+            entry_high=raw.get('entry_high'),
+            stop_loss=raw.get('stop_loss') or raw.get('stop_price'),
+            target1=raw.get('target1'),
+            target2=raw.get('target2'),
+            rationale=str(raw.get('rationale') or raw.get('reason') or ''),
+            risk=str(raw.get('risk') or raw.get('failure_condition') or ''),
+            source_note=str(raw.get('source_note') or title),
+            recommended_at_kst=raw.get('recommended_at_kst'),
+        )
+        source_id = str(raw.get('id') or raw.get('source_id') or '').strip()
+        if source_id:
+            entry['source_id'] = f'chatgpt_auto:{source_id}'
+        add_chat_recommendation(entry, notify=False)
+        saved.append(entry)
+    if notify and saved:
+        send_telegram_message(build_chat_recommendation_message(saved, title=title))
+    return {'ok': True, 'saved_count': len(saved), 'items': saved[:20], 'notify': notify}
+
+
 def _bool_value(value) -> bool:
     if isinstance(value, bool):
         return value
@@ -200,7 +250,7 @@ def _bool_value(value) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'StockScannerAPI/1.6'
+    server_version = 'StockScannerAPI/1.7'
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
@@ -208,11 +258,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 'ok': True,
                 'service': 'stock_scanner_api',
-                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/recommendation-performance', '/api/update-recommendation-pnl', '/api/kr-sector-snapshot', '/api/kr-backtest', '/api/kr-stock-strategy'],
+                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/recommendation-performance', '/api/update-recommendation-pnl', '/api/kr-sector-snapshot', '/api/kr-backtest', '/api/kr-stock-strategy', '/api/chatgpt-picks'],
                 'write_enabled': _write_enabled(),
                 'latest_report_exists': LATEST_PATH.exists(),
                 'quote_quality_report_exists': QUOTE_QUALITY_PATH.exists(),
                 'recommendation_history_exists': RECOMMENDATION_HISTORY_PATH.exists(),
+                'chat_recommendation_history_exists': CHAT_RECOMMENDATION_HISTORY_PATH.exists(),
                 'recommendation_performance_exists': RECOMMENDATION_PERFORMANCE_PATH.exists(),
                 'backtest_report_exists': BACKTEST_REPORT_PATH.exists(),
             })
@@ -224,12 +275,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/kr-sector-snapshot':
             status, data = _latest_payload()
             if status == 200:
-                data = {
-                    'ok': True,
-                    'created_at_kst': data.get('created_at_kst'),
-                    'mode': data.get('mode'),
-                    'kr_sector_snapshot': data.get('kr_sector_snapshot', []),
-                }
+                data = {'ok': True, 'created_at_kst': data.get('created_at_kst'), 'mode': data.get('mode'), 'kr_sector_snapshot': data.get('kr_sector_snapshot', [])}
             self._send_json(status, data)
             return
         if path == '/api/quote-quality':
@@ -247,6 +293,10 @@ class Handler(BaseHTTPRequestHandler):
             status, data = _read_json(RECOMMENDATION_HISTORY_PATH)
             self._send_json(status, data)
             return
+        if path == '/api/chatgpt-picks':
+            status, data = _read_json(CHAT_RECOMMENDATION_HISTORY_PATH)
+            self._send_json(status, data)
+            return
         if path == '/api/recommendation-performance':
             status, data = _performance_payload()
             self._send_json(status, data)
@@ -255,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
-        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest', '/api/kr-stock-strategy', '/api/update-recommendation-pnl'}:
+        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest', '/api/kr-stock-strategy', '/api/update-recommendation-pnl', '/api/chatgpt-picks'}:
             self._send_json(404, {'ok': False, 'error': 'not_found', 'path': path})
             return
         try:
@@ -265,13 +315,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == '/api/run-scan':
                 from scan_once import run_full_scan
-                payload = run_full_scan(notify=False, write_report=True)
+                body = self._read_body_json()
+                notify = _bool_value(body.get('notify', False))
+                payload = run_full_scan(notify=notify, write_report=True)
                 self._send_json(200, {
                     'ok': True,
                     'created_at_kst': payload.get('created_at_kst'),
                     'mode': payload.get('mode'),
                     'kr_short_count': len(payload.get('kr_short_stocks', [])),
                     'data_quality': payload.get('data_quality', {}),
+                    'notify': notify,
                 })
                 return
             if path == '/api/update-recommendation-pnl':
@@ -291,6 +344,10 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._read_body_json()
                 query = str(body.get('query') or body.get('code') or body.get('name') or '').strip()
                 self._send_json(200, analyze_kr_stock_strategy(query))
+                return
+            if path == '/api/chatgpt-picks':
+                body = self._read_body_json()
+                self._send_json(200, _chatgpt_picks_payload(body))
                 return
         except Exception as exc:
             self._send_json(400, {'ok': False, 'error': exc.__class__.__name__, 'message': str(exc)})
