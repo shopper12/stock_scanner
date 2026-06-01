@@ -44,6 +44,8 @@ def run_full_scan(notify: bool = False, write_report: bool = True) -> dict:
     if write_report:
         write_latest_report(payload)
         update_recommendation_history(created_at, kr_short_rows)
+    if notify:
+        _send_scan_notification(payload)
     return payload
 
 
@@ -95,6 +97,14 @@ def update_recommendation_history(created_at_kst: str, kr_short_rows: list[dict]
     }
     HISTORY_REPORT_PATH.write_text(json.dumps(out, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
     return out
+
+
+def _send_scan_notification(payload: dict) -> None:
+    try:
+        from notifier import build_mobile_summary, send_telegram_message
+        send_telegram_message(build_mobile_summary(payload))
+    except Exception as exc:
+        print(f'[scan_once] telegram notification skipped: {exc}')
 
 
 def _save_recommendation_for_tracking(scan_date: str, row: dict, code: str) -> None:
@@ -161,7 +171,7 @@ def _mobile_summary(payload: dict) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Run stock scanner once.')
-    parser.add_argument('--notify', action='store_true', help='Accepted for compatibility; no push is sent by this minimal runner.')
+    parser.add_argument('--notify', action='store_true', help='Send Telegram summary when configured.')
     parser.add_argument('--no-report', action='store_true', help='Do not write reports/latest.json.')
     args = parser.parse_args()
     payload = run_full_scan(notify=args.notify, write_report=not args.no_report)
