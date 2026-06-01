@@ -17,16 +17,10 @@ _ORIGINAL_SCORE = base._score
 
 
 def scan_kr_short_stocks() -> pd.DataFrame:
-    """Run KR short scanner across the full liquid KRX universe.
-
-    Runtime path deliberately removes sector-based recommendation logic:
-    - no sector diversification picker
-    - no sector_rank / sector_strength / market_rotation score bonus
-    - selection is based on stock-level price, trend, volume, liquidity and risk only
-    """
+    """Run KR short scanner without sector-based selection."""
     base.get_kr_stock_universe = get_kr_stock_universe_fast
     base.load_kr_short_rules = _load_runtime_rules
-    base._select_diversified = _select_top_n
+    base._select_diversified = _select_pre_filter_buffer
     base._setup = _runtime_setup
     base._score = _runtime_score
     scanned = _ORIGINAL_SCAN()
@@ -118,5 +112,15 @@ def _top_n() -> int:
         return 5
 
 
-def _select_top_n(ranked: pd.DataFrame, max_items: int) -> pd.DataFrame:
-    return ranked.head(max(max_items, _top_n())).reset_index(drop=True)
+def _pre_filter_buffer_size() -> int:
+    raw = os.getenv('KR_PREFILTER_RESULT_BUFFER')
+    if raw is not None:
+        try:
+            return max(_top_n(), int(float(raw)))
+        except ValueError:
+            pass
+    return max(80, _top_n() * 20)
+
+
+def _select_pre_filter_buffer(ranked: pd.DataFrame, max_items: int) -> pd.DataFrame:
+    return ranked.head(_pre_filter_buffer_size()).reset_index(drop=True)
