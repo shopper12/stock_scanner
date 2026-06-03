@@ -243,6 +243,110 @@ def _chatgpt_picks_payload(data: dict) -> dict:
     return {'ok': True, 'saved_count': len(saved), 'items': saved[:20], 'notify': notify}
 
 
+def _kakao_skill_payload(data: dict) -> dict:
+    utterance = str((data.get('userRequest') or {}).get('utterance') or data.get('utterance') or '').strip()
+    text = _kakao_answer_text(utterance)
+    return _kakao_simple_text(text, [
+        ('현재 후보', '현재 후보'),
+        ('추천 이력', '추천 이력'),
+        ('ChatGPT 추천', 'ChatGPT 추천'),
+        ('성과', '성과'),
+    ])
+
+
+def _kakao_answer_text(utterance: str) -> str:
+    q = utterance.replace(' ', '').lower()
+    if any(key in q for key in ['성과', '수익', '손익', 'performance']):
+        return _kakao_performance_text()
+    if any(key in q for key in ['chatgpt', '챗gpt', '챗지피티', '자동작업', '브리핑']):
+        return _kakao_history_text(CHAT_RECOMMENDATION_HISTORY_PATH, 'ChatGPT 추천')
+    if any(key in q for key in ['이력', '히스토리', 'history']):
+        return _kakao_history_text(RECOMMENDATION_HISTORY_PATH, '추천 이력')
+    return _kakao_latest_text()
+
+
+def _kakao_latest_text() -> str:
+    status, data = _latest_payload()
+    if status != 200:
+        return '최신 스캔 결과가 없습니다. 앱 또는 /api/run-scan으로 먼저 스캔하세요.'
+    rows = data.get('kr_short_stocks') or []
+    if not rows:
+        return f"현재 조건 통과 종목이 없습니다.\n기준시각: {data.get('created_at_kst', '-')}"
+    lines = [f"📌 현재 후보 {len(rows)}개", f"기준: {data.get('created_at_kst', '-')}", '']
+    for row in rows[:5]:
+        lines.extend(_format_pick_lines(row))
+    return '\n'.join(lines).strip()
+
+
+def _kakao_history_text(path: Path, title: str) -> str:
+    status, data = _read_json(path)
+    if status != 200:
+        return f'{title} 파일이 없습니다.'
+    rows = data.get('items') or []
+    if not rows:
+        return f'{title}이 없습니다.'
+    lines = [f'📌 {title}', f"업데이트: {data.get('updated_at_kst', '-')}", '']
+    for row in rows[:5]:
+        lines.extend(_format_pick_lines(row))
+    return '\n'.join(lines).strip()
+
+
+def _kakao_performance_text() -> str:
+    status, data = _performance_payload()
+    if status != 200:
+        return '성과 리포트가 없습니다.'
+    summary = data.get('summary') or data
+    lines = [
+        '📊 추천 성과',
+        f"생성: {data.get('created_at_kst', '-')}",
+        f"누적: {summary.get('total_recommendations', '-')}개 / 계산가능: {summary.get('measurable_count', summary.get('closed_count', '-'))}개",
+        f"평균수익률: {summary.get('avg_pnl_pct', summary.get('avg_realized_return_pct', '-'))}%",
+        f"승률: {_pct_text(summary.get('win_rate'))}",
+    ]
+    return '\n'.join(lines)
+
+
+def _format_pick_lines(row: dict) -> list[str]:
+    name = row.get('name', '-')
+    code = str(row.get('code', '-')).zfill(6) if row.get('code') else '-'
+    score = row.get('score') or row.get('score_at_recommendation') or '-'
+    entry = row.get('entry') or row.get('entry_price') or '-'
+    stop = row.get('stop_loss') or row.get('stop_price') or '-'
+    target1 = row.get('target1') or '-'
+    target2 = row.get('target2') or '-'
+    reason = row.get('reason') or row.get('rationale') or ''
+    return [
+        f"{name}({code}) score={score}",
+        f"진입 {entry} / 손절 {stop} / 목표 {target1}→{target2}",
+        f"근거: {reason[:80]}",
+        '',
+    ]
+
+
+def _kakao_simple_text(text: str, quick_replies: list[tuple[str, str]] | None = None) -> dict:
+    body = {
+        'version': '2.0',
+        'template': {
+            'outputs': [
+                {'simpleText': {'text': text[:1000] if text else '표시할 내용이 없습니다.'}}
+            ],
+        },
+    }
+    if quick_replies:
+        body['template']['quickReplies'] = [
+            {'label': label, 'action': 'message', 'messageText': message}
+            for label, message in quick_replies
+        ]
+    return body
+
+
+def _pct_text(value) -> str:
+    try:
+        return f'{float(value) * 100:.1f}%'
+    except Exception:
+        return '-'
+
+
 def _bool_value(value) -> bool:
     if isinstance(value, bool):
         return value
@@ -250,7 +354,7 @@ def _bool_value(value) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'StockScannerAPI/1.7'
+    server_version = 'StockScannerAPI/1.8'
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
@@ -258,7 +362,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 'ok': True,
                 'service': 'stock_scanner_api',
-                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/recommendation-performance', '/api/update-recommendation-pnl', '/api/kr-sector-snapshot', '/api/kr-backtest', '/api/kr-stock-strategy', '/api/chatgpt-picks'],
+                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/recommendation-performance', '/api/update-recommendation-pnl', '/api/kr-sector-snapshot', '/api/kr-backtest', '/api/kr-stock-strategy', '/api/chatgpt-picks', '/api/kakao-skill'],
                 'write_enabled': _write_enabled(),
                 'latest_report_exists': LATEST_PATH.exists(),
                 'quote_quality_report_exists': QUOTE_QUALITY_PATH.exists(),
@@ -305,10 +409,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
-        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest', '/api/kr-stock-strategy', '/api/update-recommendation-pnl', '/api/chatgpt-picks'}:
+        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest', '/api/kr-stock-strategy', '/api/update-recommendation-pnl', '/api/chatgpt-picks', '/api/kakao-skill'}:
             self._send_json(404, {'ok': False, 'error': 'not_found', 'path': path})
             return
         try:
+            if path == '/api/kakao-skill':
+                body = self._read_body_json()
+                self._send_json(200, _kakao_skill_payload(body))
+                return
             if path == '/api/kr-short-rules':
                 payload = self._read_body_json()
                 self._send_json(200, _update_rules(payload))
