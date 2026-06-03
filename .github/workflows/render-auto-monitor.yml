@@ -11,23 +11,6 @@ on:
         description: 'Max KR symbols for scheduled backtest'
         required: false
         default: '60'
-  push:
-    branches:
-      - main
-    paths:
-      - 'api_server.py'
-      - 'scan_once.py'
-      - 'strategies/**'
-      - 'backtest/**'
-      - 'analysis/**'
-      - 'database/**'
-      - 'tools/render_auto_monitor.py'
-      - '.github/workflows/render-auto-monitor.yml'
-  schedule:
-    # KST 08:55, 15:05, 20:00 on weekdays
-    - cron: '55 23 * * 0-4'
-    - cron: '05 06 * * 1-5'
-    - cron: '00 11 * * 1-5'
 
 permissions:
   contents: read
