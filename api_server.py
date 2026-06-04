@@ -300,7 +300,7 @@ def _kakao_performance_text() -> str:
         '📊 추천 성과',
         f"생성: {data.get('created_at_kst', '-')}",
         f"누적: {summary.get('total_recommendations', '-')}개 / 계산가능: {summary.get('measurable_count', summary.get('closed_count', '-'))}개",
-        f"평균수익률: {summary.get('avg_pnl_pct', summary.get('avg_realized_return_pct', '-'))}%",
+        f"평균수익률: {summary.get('avg_pnl_pct', summary.get('avg_realized_return_pct', '-')}%",
         f"승률: {_pct_text(summary.get('win_rate'))}",
     ]
     return '\n'.join(lines)
@@ -354,7 +354,7 @@ def _bool_value(value) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'StockScannerAPI/1.8'
+    server_version = 'StockScannerAPI/1.9'
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
@@ -426,14 +426,11 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._read_body_json()
                 notify = _bool_value(body.get('notify', False))
                 payload = run_full_scan(notify=notify, write_report=True)
-                self._send_json(200, {
-                    'ok': True,
-                    'created_at_kst': payload.get('created_at_kst'),
-                    'mode': payload.get('mode'),
-                    'kr_short_count': len(payload.get('kr_short_stocks', [])),
-                    'data_quality': payload.get('data_quality', {}),
-                    'notify': notify,
-                })
+                payload.setdefault('ok', True)
+                payload['kr_short_count'] = len(payload.get('kr_short_stocks', []))
+                payload['notify'] = notify
+                payload.setdefault('kr_sector_snapshot', _sector_snapshot_from_latest(payload))
+                self._send_json(200, payload)
                 return
             if path == '/api/update-recommendation-pnl':
                 from tools.update_recommendation_pnl import update_recommendation_pnl
