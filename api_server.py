@@ -300,7 +300,7 @@ def _kakao_performance_text() -> str:
         '📊 추천 성과',
         f"생성: {data.get('created_at_kst', '-')}",
         f"누적: {summary.get('total_recommendations', '-')}개 / 계산가능: {summary.get('measurable_count', summary.get('closed_count', '-'))}개",
-        f"평균수익률: {summary.get('avg_pnl_pct', summary.get('avg_realized_return_pct', '-')}%",
+        f"평균수익률: {summary.get('avg_pnl_pct', summary.get('avg_realized_return_pct', '-'))}%",
         f"승률: {_pct_text(summary.get('win_rate'))}",
     ]
     return '\n'.join(lines)
