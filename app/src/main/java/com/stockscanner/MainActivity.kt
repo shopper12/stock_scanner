@@ -80,53 +80,51 @@ private fun StockScannerScreen() {
     fun persistEditKey(value: String) {
         saveServerEditKey(context, value)
         editKey = readServerEditKey(context)
-        message = if (editKey.isBlank()) "서버 편집키가 비어 있습니다." else "서버 편집키를 이 기기에 저장했습니다."
+        message = if (editKey.isBlank()) "서버 편집키가 비어 있습니다. 그래도 스캔은 실행할 수 있습니다." else "서버 편집키를 이 기기에 저장했습니다."
     }
 
     fun clearEditKey() {
         clearServerEditKey(context)
         editKey = ""
-        message = "서버 편집키를 삭제했습니다."
+        message = "서버 편집키를 삭제했습니다. 그래도 스캔은 실행할 수 있습니다."
     }
 
     fun openUpdatePage() {
-        runCatching {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UPDATE_PAGE_URL)))
-        }.onFailure {
-            message = "브라우저를 열 수 없습니다: $UPDATE_PAGE_URL"
-        }
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UPDATE_PAGE_URL))) }
+            .onFailure { message = "브라우저를 열 수 없습니다: $UPDATE_PAGE_URL" }
     }
 
     suspend fun refresh() {
         loading = true
         error = null
+        message = null
         runCatching {
-            snapshot = fetchSnapshot()
-            rules = fetchRules()
-            history = fetchHistory()
+            snapshot = fetchSnapshotOrNull()
+            rules = fetchRulesOrNull() ?: rules ?: defaultRules()
+            history = fetchHistoryOrEmpty()
             performance = fetchPerformanceOrNull()
             backtest = fetchBacktestOrNull()
         }.onFailure { error = it.message ?: it::class.java.simpleName }
         loading = false
     }
 
-    suspend fun saveRules() {
-        val current = rules ?: return
-        val key = editKey.trim()
-        if (key.isBlank()) {
-            error = "서버 편집키를 한 번 입력하고 저장해야 조건 저장+스캔을 실행할 수 있습니다."
-            return
-        }
+    suspend fun saveRulesAndScan() {
         saving = true
         error = null
         message = null
         runCatching {
-            rules = postRules(current, key)
+            val key = editKey.trim()
+            val current = rules
+            if (current != null && key.isNotBlank()) {
+                runCatching { rules = postRules(current, key) }
+                    .onFailure { message = "조건 저장 실패. 기존 조건으로 스캔합니다: ${compactError(it)}" }
+            }
             val scanResult = runScan(key)
-            snapshot = fetchSnapshot()
-            history = fetchHistory()
+            snapshot = fetchSnapshotOrNull()
+            rules = fetchRulesOrNull() ?: rules ?: defaultRules()
+            history = fetchHistoryOrEmpty()
             performance = fetchPerformanceOrNull()
-            message = "조건 저장 및 재스캔 완료: KR 후보 ${scanResult.krShortCount}개"
+            message = "재스캔 완료: KR 후보 ${scanResult.krShortCount}개"
         }.onFailure { error = it.message ?: it::class.java.simpleName }
         saving = false
     }
@@ -148,12 +146,7 @@ private fun StockScannerScreen() {
     }
 
     suspend fun searchStockStrategy() {
-        val key = editKey.trim()
         val query = stockQuery.trim()
-        if (key.isBlank()) {
-            error = "서버 편집키를 저장해야 종목검색을 실행할 수 있습니다."
-            return
-        }
         if (query.isBlank()) {
             error = "종목명 또는 종목코드를 입력하세요. 예: 삼성전자 또는 005930"
             return
@@ -162,8 +155,9 @@ private fun StockScannerScreen() {
         error = null
         message = null
         runCatching {
-            stockStrategy = fetchStockStrategy(query, key)
-            message = "종목 분석 완료: ${stockStrategy?.name}(${stockStrategy?.code}) ${stockStrategy?.action}"
+            stockStrategy = fetchStockStrategy(query, editKey.trim())
+            val s = stockStrategy
+            message = if (s == null) "종목 분석 결과가 없습니다." else "종목 분석 완료: ${displayStockName(s.name, s.code)}(${s.code}) ${s.action}"
         }.onFailure { error = it.message ?: it::class.java.simpleName }
         searching = false
     }
@@ -179,7 +173,7 @@ private fun StockScannerScreen() {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { scope.launch { refresh() } }, enabled = !busy()) { Text(if (loading) "Loading" else "Refresh") }
-                    Button(onClick = { scope.launch { saveRules() } }, enabled = rules != null && !busy()) { Text(if (saving) "Saving" else "조건 저장+스캔") }
+                    Button(onClick = { scope.launch { saveRulesAndScan() } }, enabled = !busy()) { Text(if (saving) "Scanning" else "조건 저장+스캔") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { scope.launch { runBacktestNow() } }, enabled = !busy()) { Text(if (backtesting) "검증 중" else "백테스트") }
@@ -188,15 +182,15 @@ private fun StockScannerScreen() {
                 }
             }
         }
-        item { InfoCard("업데이트 방식: GitHub 수정 후 Android Build가 자동 실행되고, 최신 서명 APK가 app-latest Release에 올라갑니다. '업데이트/APK' 버튼을 누른 뒤 stock-scanner-latest.apk를 받아 설치하세요.") }
-        if (error != null) item { InfoCard("API error: $error") }
+        item { InfoCard("Refresh는 서버의 최신 결과만 읽습니다. 종목 후보가 비어 있으면 '조건 저장+스캔'을 눌러 서버 재스캔을 실행하세요. 편집키가 없어도 스캔은 시도합니다.") }
+        if (error != null) item { InfoCard("API error: ${error ?: ""}") }
         if (message != null) item { InfoCard(message ?: "") }
         if (showHistory) {
             item { PerformanceSummaryCard(performance) }
             item { HistorySummary(history) }
             val items = history?.items.orEmpty()
             if (items.isEmpty()) {
-                item { InfoCard("저장된 추천 이력이 없습니다. 조건 저장+스캔 또는 Smoke Scan 실행 후 누적됩니다.") }
+                item { InfoCard("저장된 추천 이력이 없습니다. 조건 저장+스캔 실행 후 누적됩니다.") }
             } else {
                 items(items) { item -> HistoryCard(item) }
             }
@@ -217,7 +211,7 @@ private fun StockScannerScreen() {
             val data = snapshot
             item {
                 if (data == null) {
-                    InfoCard(if (loading) "Loading latest scan." else "No scan data loaded.")
+                    InfoCard(if (loading) "Loading latest scan." else "No scan data loaded. 조건 저장+스캔을 눌러 새 후보를 생성하세요.")
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Scan: ${data.createdAtKst} / mode=${data.mode}")
@@ -225,11 +219,9 @@ private fun StockScannerScreen() {
                     }
                 }
             }
-            if (data != null) {
-                item { SectorSummaryCard(data.sectors) }
-            }
+            if (data != null) item { SectorSummaryCard(data.sectors) }
             if (data != null && data.stocks.isEmpty()) {
-                item { InfoCard("No KR short candidates.") }
+                item { InfoCard("No KR short candidates. 조건이 너무 엄격하거나 서버 스캔 결과가 비어 있습니다.") }
             } else if (data != null) {
                 items(data.stocks) { stock -> StockCard(stock) }
             }
@@ -241,7 +233,7 @@ private fun StockScannerScreen() {
 private fun PerformanceSummaryCard(performance: RecommendationPerformance?) {
     val summary = performance?.summary
     if (summary == null) {
-        InfoCard("추천 성과: 아직 생성된 성과 리포트가 없습니다. 자동 모니터링 또는 성과갱신 API 실행 후 표시됩니다.")
+        InfoCard("추천 성과: 아직 생성된 성과 리포트가 없습니다.")
         return
     }
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -251,9 +243,7 @@ private fun PerformanceSummaryCard(performance: RecommendationPerformance?) {
             Text("누적 ${summary.totalRecommendations}개 / 계산 가능 ${summary.measurableCount}개")
             Text("평균 ${formatSignedPercent(summary.avgPnlPct)} / 중앙값 ${formatSignedPercent(summary.medianPnlPct)} / 승률 ${formatPercent(summary.winRate)}")
             Text("손절 ${formatPercent(summary.hitStopRate)} / 목표1 ${formatPercent(summary.hitTarget1Rate)} / 목표2 ${formatPercent(summary.hitTarget2Rate)}")
-            if (summary.bestSetup.isNotBlank() || summary.worstSetup.isNotBlank()) {
-                Text("setup 최고 ${summary.bestSetup.ifBlank { "-" }} / 최악 ${summary.worstSetup.ifBlank { "-" }}")
-            }
+            if (summary.bestSetup.isNotBlank() || summary.worstSetup.isNotBlank()) Text("setup 최고 ${summary.bestSetup.ifBlank { "-" }} / 최악 ${summary.worstSetup.ifBlank { "-" }}")
         }
     }
 }
@@ -278,9 +268,10 @@ private fun StockLookupCard(query: String, searching: Boolean, onQuery: (String)
 
 @Composable
 private fun StockStrategyCard(strategy: KrStockStrategy) {
+    val name = displayStockName(strategy.name, strategy.code)
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("${strategy.name}(${strategy.code}) | ${strategy.sector}/${strategy.setup}", fontWeight = FontWeight.Bold)
+            Text("$name(${strategy.code}) | ${strategy.sector}/${strategy.setup}", fontWeight = FontWeight.Bold)
             Text("판단: ${strategy.action} / 점수 ${formatNumber(strategy.score)} 기준 ${formatNumber(strategy.threshold)}")
             Text("이유: ${strategy.actionReason}")
             Text("현재가 ${formatPrice(strategy.currentPrice)} (${strategy.priceBasis}) / ${strategy.priceTimestamp}")
@@ -348,7 +339,8 @@ private fun HistorySummary(history: RecommendationHistory?) {
 private fun HistoryCard(item: RecommendationItem) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("${item.name}(${item.code}) | ${item.sector}/${item.strategyType}", fontWeight = FontWeight.Bold)
+            val name = displayStockName(item.name, item.code)
+            Text("$name(${item.code}) | ${item.sector}/${item.strategyType}", fontWeight = FontWeight.Bold)
             Text("추천일 ${item.scanDate} / 보유 ${item.holdingDays}일 / 상태 ${statusLabel(item.status)}")
             Text("점수 ${formatNumber(item.scoreAtRecommendation)} / 추천가 ${formatPrice(item.entry)} / 현재가 ${formatPrice(item.latestPrice)}")
             Text("손익 ${formatSignedPrice(item.pnlKrwPerShare)} / ${item.pnlPct?.let { formatSignedPercent(it) } ?: "-"}")
@@ -373,12 +365,12 @@ private fun RulesEditor(
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("한국 단기 종목 검색 조건", fontWeight = FontWeight.Bold)
-            Text("서버 편집키는 한 번만 저장하면 됩니다. 이후에는 조건 저장+스캔/백테스트/종목검색을 실행할 수 있습니다.")
+            Text("편집키는 조건 저장용입니다. 스캔 자체는 편집키가 없어도 실행됩니다.")
             OutlinedTextField(
                 value = editKey,
                 onValueChange = onEditKeyChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("서버 편집키 1회 입력") },
+                label = { Text("서버 편집키 선택 입력") },
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true
             )
@@ -386,19 +378,20 @@ private fun RulesEditor(
                 Button(onClick = onPersistEditKey) { Text("편집키 저장") }
                 Button(onClick = onClearEditKey) { Text("편집키 삭제") }
             }
-            Text(if (editKey.isBlank()) "편집키 미저장: 조건 저장/백테스트/종목검색은 실패합니다." else "편집키 저장됨: 조건 저장+스캔/백테스트/종목검색 가능")
-            if (rules == null) {
-                Text("조건 로딩 중 또는 조건 API 미배포 상태")
+            Text(if (editKey.isBlank()) "편집키 없음: 조건 저장은 건너뛰고 스캔만 실행합니다." else "편집키 저장됨: 조건 저장+스캔 가능")
+            val current = rules
+            if (current == null) {
+                Text("조건 API 미로딩 상태입니다. 그래도 조건 저장+스캔 버튼으로 서버 스캔은 실행됩니다.")
                 return@Column
             }
-            RuleNumberField("최소 후보 점수", "score_threshold", rules.scoreThreshold, "이 점수보다 낮으면 후보 제외. 높이면 엄격, 낮추면 후보 증가.") { onRulesChange(rules.copy(scoreThreshold = it)) }
-            RuleNumberField("최소 손절폭 %", "min_risk_pct", rules.minRiskPct, "진입가 대비 최소 손절폭. 너무 낮으면 노이즈 손절 증가.") { onRulesChange(rules.copy(minRiskPct = it)) }
-            RuleNumberField("최대 손절폭 %", "max_risk_pct", rules.maxRiskPct, "진입가 대비 최대 허용 손절폭. 높이면 위험 큰 종목도 통과.") { onRulesChange(rules.copy(maxRiskPct = it)) }
-            RuleNumberField("최대 진입 괴리율 %", "max_entry_gap_pct", rules.maxEntryGapPct, "돌파 진입가가 현재가보다 이 이상 높으면 제외.") { onRulesChange(rules.copy(maxEntryGapPct = it)) }
-            RuleNumberField("MA20 과열 한도 %", "max_gap_ma20_pct", rules.maxGapMa20Pct, "현재가가 MA20보다 과도하게 높으면 점수 패널티.") { onRulesChange(rules.copy(maxGapMa20Pct = it)) }
-            RuleNumberField("급등 검증 기준 %", "surge_threshold_pct", rules.surgeThresholdPct, "백테스트에서 급등으로 볼 기준 수익률.") { onRulesChange(rules.copy(surgeThresholdPct = it)) }
-            RuleNumberField("기본 보유일", "hold_days", rules.holdDays.toDouble(), "단기 전략 검증 및 보유 기준 일수.") { onRulesChange(rules.copy(holdDays = it.toInt())) }
-            Text("현재 버전: ${rules.version}")
+            RuleNumberField("최소 후보 점수", "score_threshold", current.scoreThreshold, "이 점수보다 낮으면 후보 제외. 높이면 엄격, 낮추면 후보 증가.") { onRulesChange(current.copy(scoreThreshold = it)) }
+            RuleNumberField("최소 손절폭 %", "min_risk_pct", current.minRiskPct, "진입가 대비 최소 손절폭. 너무 낮으면 노이즈 손절 증가.") { onRulesChange(current.copy(minRiskPct = it)) }
+            RuleNumberField("최대 손절폭 %", "max_risk_pct", current.maxRiskPct, "진입가 대비 최대 허용 손절폭. 높이면 위험 큰 종목도 통과.") { onRulesChange(current.copy(maxRiskPct = it)) }
+            RuleNumberField("최대 진입 괴리율 %", "max_entry_gap_pct", current.maxEntryGapPct, "돌파 진입가가 현재가보다 이 이상 높으면 제외.") { onRulesChange(current.copy(maxEntryGapPct = it)) }
+            RuleNumberField("MA20 과열 한도 %", "max_gap_ma20_pct", current.maxGapMa20Pct, "현재가가 MA20보다 과도하게 높으면 점수 패널티.") { onRulesChange(current.copy(maxGapMa20Pct = it)) }
+            RuleNumberField("급등 검증 기준 %", "surge_threshold_pct", current.surgeThresholdPct, "백테스트에서 급등으로 볼 기준 수익률.") { onRulesChange(current.copy(surgeThresholdPct = it)) }
+            RuleNumberField("기본 보유일", "hold_days", current.holdDays.toDouble(), "단기 전략 검증 및 보유 기준 일수.") { onRulesChange(current.copy(holdDays = it.toInt())) }
+            Text("현재 버전: ${current.version}")
         }
     }
 }
@@ -415,7 +408,8 @@ private fun RuleNumberField(labelKo: String, key: String, value: Double, help: S
 private fun StockCard(stock: KrShortStock) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("${stock.name}(${stock.code}) | ${stock.sector}/${stock.strategyType}", fontWeight = FontWeight.Bold)
+            val name = displayStockName(stock.name, stock.code)
+            Text("$name(${stock.code}) | ${stock.sector}/${stock.strategyType}", fontWeight = FontWeight.Bold)
             Text("Score ${formatNumber(stock.score)} / Risk ${formatNumber(stock.riskPct)}%")
             Text("Now ${formatPrice(stock.currentPrice)} (${stock.priceBasis}, ${stock.quoteSource})")
             Text("Time ${stock.priceTimestamp}")
@@ -432,9 +426,9 @@ private fun InfoCard(text: String) {
     Card(modifier = Modifier.fillMaxWidth()) { Text(text, modifier = Modifier.padding(12.dp)) }
 }
 
-private suspend fun fetchSnapshot(): StockSnapshot = withContext(Dispatchers.IO) { parseSnapshot(JSONObject(httpJson("GET", LATEST_URL, null, null))) }
-private suspend fun fetchRules(): KrShortRules = withContext(Dispatchers.IO) { parseRules(JSONObject(httpJson("GET", RULES_URL, null, null)).optJSONObject("rules") ?: JSONObject()) }
-private suspend fun fetchHistory(): RecommendationHistory = withContext(Dispatchers.IO) { parseHistory(JSONObject(httpJson("GET", HISTORY_URL, null, null))) }
+private suspend fun fetchSnapshotOrNull(): StockSnapshot? = withContext(Dispatchers.IO) { runCatching { parseSnapshot(JSONObject(httpJson("GET", LATEST_URL, null, null))) }.getOrNull() }
+private suspend fun fetchRulesOrNull(): KrShortRules? = withContext(Dispatchers.IO) { runCatching { parseRules(JSONObject(httpJson("GET", RULES_URL, null, null)).optJSONObject("rules") ?: JSONObject()) }.getOrNull() }
+private suspend fun fetchHistoryOrEmpty(): RecommendationHistory = withContext(Dispatchers.IO) { runCatching { parseHistory(JSONObject(httpJson("GET", HISTORY_URL, null, null))) }.getOrElse { RecommendationHistory("-", emptyList()) } }
 private suspend fun fetchPerformanceOrNull(): RecommendationPerformance? = withContext(Dispatchers.IO) { runCatching { parsePerformance(JSONObject(httpJson("GET", PERFORMANCE_URL, null, null))) }.getOrNull() }
 private suspend fun fetchBacktestOrNull(): KrBacktestReport? = withContext(Dispatchers.IO) { runCatching { parseBacktest(JSONObject(httpJson("GET", BACKTEST_URL, null, null))) }.getOrNull() }
 private suspend fun postRules(rules: KrShortRules, editKey: String): KrShortRules = withContext(Dispatchers.IO) { parseRules(JSONObject(httpJson("POST", RULES_URL, rules.toJson().toString(), editKey)).optJSONObject("rules") ?: JSONObject()) }
@@ -452,20 +446,29 @@ private fun httpJson(method: String, url: String, requestBody: String?, editKey:
         if (method == "POST") {
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            if (!editKey.isNullOrBlank()) setRequestProperty("X-Admin-Token", editKey)
+            if (editKey?.isNotBlank() == true) setRequestProperty("X-Admin-Token", editKey)
         }
     }
     try {
         if (requestBody != null) connection.outputStream.use { it.write(requestBody.toByteArray(Charsets.UTF_8)) }
         val code = connection.responseCode
         val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-        val body = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        if (code !in 200..299) error("HTTP $code: $body")
+        val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (code !in 200..299) error(compactHttpError(code, body))
+        if (body.trimStart().startsWith("<")) error("서버가 JSON 대신 HTML을 반환했습니다. Render 배포/재시작 상태를 확인하세요.")
         return body
     } finally {
         connection.disconnect()
     }
 }
+
+private fun compactHttpError(code: Int, body: String): String {
+    val trimmed = body.trim()
+    if (trimmed.startsWith("<")) return "HTTP $code: Render 서버 오류 또는 배포 중입니다. 잠시 후 다시 시도하세요."
+    return "HTTP $code: ${trimmed.take(300)}"
+}
+
+private fun compactError(error: Throwable): String = (error.message ?: error::class.java.simpleName).take(120)
 
 private fun parseSnapshot(json: JSONObject): StockSnapshot {
     val quality = json.optJSONObject("data_quality") ?: JSONObject()
@@ -536,6 +539,7 @@ private fun JSONObject.optNullableDouble(key: String): Double? = if (has(key) &&
 
 private fun parseRules(json: JSONObject): KrShortRules = KrShortRules(json.optInt("version", 1), json.optDouble("score_threshold", 55.0), json.optDouble("min_risk_pct", 1.5), json.optDouble("max_risk_pct", 12.0), json.optDouble("max_entry_gap_pct", 3.5), json.optDouble("max_gap_ma20_pct", 12.0), json.optDouble("surge_threshold_pct", 12.0), json.optInt("hold_days", 10))
 private fun KrShortRules.toJson(): JSONObject = JSONObject().apply { put("rules", JSONObject().apply { put("score_threshold", scoreThreshold); put("min_risk_pct", minRiskPct); put("max_risk_pct", maxRiskPct); put("max_entry_gap_pct", maxEntryGapPct); put("max_gap_ma20_pct", maxGapMa20Pct); put("surge_threshold_pct", surgeThresholdPct); put("hold_days", holdDays) }) }
+private fun defaultRules(): KrShortRules = KrShortRules(1, 55.0, 1.5, 12.0, 3.5, 12.0, 12.0, 10)
 
 private data class StockSnapshot(val createdAtKst: String, val mode: String, val quoteOkRate: Double, val quoteOk: Int, val total: Int, val stocks: List<KrShortStock>, val sectors: List<KrSectorSnapshot>)
 private data class KrSectorSnapshot(val sector: String, val sectorRank: Int?, val sectorStrengthScore: Double, val marketRotationScore: Double, val selectedCount: Int, val topStock: String, val topStockCode: String, val topScore: Double)
@@ -557,3 +561,41 @@ private fun formatPercent(value: Double): String = String.format("%.1f%%", value
 private fun formatSignedPercent(value: Double): String = String.format("%+.2f%%", value)
 private fun formatSignedPrice(value: Double?): String = value?.let { String.format("%+,.0f원/주", it) } ?: "-"
 private fun trimNumber(value: Double): String = if (value % 1.0 == 0.0) value.toInt().toString() else String.format("%.2f", value)
+private fun displayStockName(name: String, code: String): String = name.trim().takeIf { it.isNotBlank() && it != code && it != code.trimStart('0') } ?: codeToName(code) ?: code
+private fun codeToName(code: String): String? = when (code.zfill6()) {
+    "005930" -> "삼성전자"
+    "005935" -> "삼성전자우"
+    "000660" -> "SK하이닉스"
+    "005380" -> "현대차"
+    "000270" -> "기아"
+    "003550" -> "LG"
+    "066570" -> "LG전자"
+    "051910" -> "LG화학"
+    "373220" -> "LG에너지솔루션"
+    "035420" -> "NAVER"
+    "035720" -> "카카오"
+    "005490" -> "POSCO홀딩스"
+    "207940" -> "삼성바이오로직스"
+    "068270" -> "셀트리온"
+    "012450" -> "한화에어로스페이스"
+    "034020" -> "두산에너빌리티"
+    "329180" -> "HD현대중공업"
+    "042660" -> "한화오션"
+    "010140" -> "삼성중공업"
+    "096770" -> "SK이노베이션"
+    "402340" -> "SK스퀘어"
+    "017670" -> "SK텔레콤"
+    "030200" -> "KT"
+    "105560" -> "KB금융"
+    "055550" -> "신한지주"
+    "086790" -> "하나금융지주"
+    "316140" -> "우리금융지주"
+    "006400" -> "삼성SDI"
+    "247540" -> "에코프로비엠"
+    "086520" -> "에코프로"
+    "196170" -> "알테오젠"
+    "141080" -> "리가켐바이오"
+    "042700" -> "한미반도체"
+    else -> null
+}
+private fun String.zfill6(): String = trim().padStart(6, '0')
