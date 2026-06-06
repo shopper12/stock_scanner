@@ -79,10 +79,36 @@ def _read_json(path: Path) -> tuple[int, dict]:
         return 500, {'ok': False, 'error': 'invalid_json', 'message': str(exc), 'path': str(path.relative_to(ROOT_DIR))}
 
 
-def _latest_payload() -> tuple[int, dict]:
+def _run_scan_payload(notify: bool = False) -> dict:
+    from scan_once import run_full_scan
+    payload = run_full_scan(notify=notify, write_report=True)
+    payload.setdefault('ok', True)
+    payload['kr_short_count'] = len(payload.get('kr_short_stocks', []))
+    payload['notify'] = notify
+    payload.setdefault('kr_sector_snapshot', _sector_snapshot_from_latest(payload))
+    return payload
+
+
+def _latest_payload(auto_bootstrap: bool = True) -> tuple[int, dict]:
     status, data = _read_json(LATEST_PATH)
     if status == 200:
+        data.setdefault('ok', True)
+        data.setdefault('kr_short_count', len(data.get('kr_short_stocks', [])))
         data.setdefault('kr_sector_snapshot', _sector_snapshot_from_latest(data))
+        return 200, data
+    if auto_bootstrap and status == 404:
+        try:
+            data = _run_scan_payload(notify=False)
+            data['latest_bootstrap_scan'] = True
+            return 200, data
+        except Exception as exc:
+            return 503, {
+                'ok': False,
+                'error': 'latest_missing_and_bootstrap_failed',
+                'message': str(exc),
+                'path': str(LATEST_PATH.relative_to(ROOT_DIR)),
+                'suggestion': 'POST /api/run-scan or check Render logs for scanner errors.',
+            }
     return status, data
 
 
@@ -365,7 +391,7 @@ def _bool_value(value) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'StockScannerAPI/2.0'
+    server_version = 'StockScannerAPI/2.1'
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -440,15 +466,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _update_rules(payload))
                 return
             if path == '/api/run-scan':
-                from scan_once import run_full_scan
                 body = self._read_body_json()
                 notify = _bool_value(body.get('notify', False))
-                payload = run_full_scan(notify=notify, write_report=True)
-                payload.setdefault('ok', True)
-                payload['kr_short_count'] = len(payload.get('kr_short_stocks', []))
-                payload['notify'] = notify
-                payload.setdefault('kr_sector_snapshot', _sector_snapshot_from_latest(payload))
-                self._send_json(200, payload)
+                self._send_json(200, _run_scan_payload(notify=notify))
                 return
             if path == '/api/update-recommendation-pnl':
                 from tools.update_recommendation_pnl import update_recommendation_pnl
