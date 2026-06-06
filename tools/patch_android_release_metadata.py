@@ -59,8 +59,17 @@ def _patch_main_activity() -> None:
             'Text("Invalidation: ${stock.failureCondition}")\n            Button(onClick = { context.startActivity(Intent(context, ChartActivity::class.java).putExtra("code", stock.code)) }) { Text("차트 보기") }'
         )
 
+    text = text.replace(
+        'fun openUpdatePage() {\n        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UPDATE_PAGE_URL))) }\n            .onFailure { message = "브라우저를 열 수 없습니다: $UPDATE_PAGE_URL" }\n    }',
+        'fun openUpdatePage() {\n        downloadAndInstallLatestApk(context) { status -> message = status }\n    }'
+    )
+    text = text.replace(
+        'Button(onClick = { openUpdatePage() }) { Text("업데이트/APK") }',
+        'Button(onClick = { openUpdatePage() }) { Text("APK 바로 업데이트") }'
+    )
+
     path.write_text(text, encoding='utf-8')
-    print('Patched Android MainActivity: run-scan payload and chart button enabled')
+    print('Patched Android MainActivity: run-scan payload, chart button, and in-app APK updater enabled')
 
 
 if __name__ == '__main__':
