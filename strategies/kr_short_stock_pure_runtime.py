@@ -23,7 +23,12 @@ def scan_kr_short_stocks() -> pd.DataFrame:
     base._select_diversified = _select_pre_filter_buffer
     base._setup = _runtime_setup
     base._score = _runtime_score
-    scanned = _ORIGINAL_SCAN()
+    original_bull_market_mode = settings.bull_market_mode
+    try:
+        object.__setattr__(settings, 'bull_market_mode', False)  # [FIX-1] base threshold에서 bull_market_mode 이중 가산 제거
+        scanned = _ORIGINAL_SCAN()
+    finally:
+        object.__setattr__(settings, 'bull_market_mode', original_bull_market_mode)
     return _drop_untradable_rows(scanned)
 
 
@@ -72,12 +77,26 @@ def _drop_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
     trade_value = pd.to_numeric(out.get('trade_value_krw'), errors='coerce').fillna(0.0)
     volume = pd.to_numeric(out.get('volume_ratio_20d'), errors='coerce').fillna(0.0)
     value = pd.to_numeric(out.get('trade_value_ratio_20d'), errors='coerce').fillna(0.0)
+    risk = pd.to_numeric(out.get('risk_pct'), errors='coerce').fillna(0.0)
+    drawdown52w = pd.to_numeric(out.get('drawdown_52w_pct'), errors='coerce').fillna(0.0)
     setup = out.get('strategy_type', pd.Series([''] * len(out))).astype(str)
+    rules = _ORIGINAL_RULES_LOADER()
+    original_max_risk = float(getattr(rules, 'max_risk_pct', 12.0) or 12.0)
     liquid = trade_value >= MIN_TRADE_VALUE_KRW
     valid_value_ratio = value > 0.0
     low_volume_watch = (setup == 'watch') & (volume < 0.80)
     low_value_and_volume_watch = (setup == 'watch') & (value < 0.80) & (volume < 0.80)
-    out = out.loc[liquid & valid_value_ratio & ~(low_volume_watch | low_value_and_volume_watch)].copy()
+    weak_backtested_setup = setup.isin(['breakout', 'trend_continuation'])  # [FIX-2] PF < 1.0 setup 제거
+    non_theme_excess_risk = (setup != 'theme_repricing_breakout') & (risk > original_max_risk)  # [FIX-3] 16% 완화는 theme에만 적용
+    watch_without_pullback = (setup == 'watch') & (drawdown52w > -3.0)  # [FIX-4] 눌림 없는 watch 제거
+    out = out.loc[
+        liquid
+        & valid_value_ratio
+        & ~(low_volume_watch | low_value_and_volume_watch)
+        & ~weak_backtested_setup
+        & ~non_theme_excess_risk
+        & ~watch_without_pullback
+    ].copy()
     if out.empty:
         return out.reset_index(drop=True)
     out['sector_rank'] = 99
@@ -88,9 +107,10 @@ def _drop_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
 
 def _load_runtime_rules():
     rules = _ORIGINAL_RULES_LOADER()
-    threshold = _runtime_score_threshold(rules)
+    threshold = _runtime_score_threshold(rules)  # [FIX-1] 기본 55점 기준 유지
+    max_risk = max(float(getattr(rules, 'max_risk_pct', 12.0) or 12.0), 16.0)  # [FIX-3] theme_repricing_breakout 후보 복구용 risk buffer
     try:
-        return rules.__class__(**{**rules.__dict__, 'score_threshold': threshold})
+        return rules.__class__(**{**rules.__dict__, 'score_threshold': threshold, 'max_risk_pct': max_risk})
     except Exception:
         return rules
 
