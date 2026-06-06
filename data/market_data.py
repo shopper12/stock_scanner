@@ -62,14 +62,43 @@ def get_kr_etf_history(code: str) -> pd.DataFrame:
 
 def get_kr_stock_universe() -> pd.DataFrame:
     if settings.use_mock_data:
-        return _ensure_sector(mock_data.kr_stock_universe()).reset_index(drop=True)
+        return _static_kr_universe()
     try:
         live = _get_dynamic_kr_stock_universe()
         if not live.empty:
             return live
         raise RuntimeError('empty dynamic KR universe')
     except Exception as exc:
-        return _fallback_or_raise(lambda: _ensure_sector(mock_data.kr_stock_universe()).reset_index(drop=True), 'Dynamic KR stock universe fetch failed', exc)
+        print(f'[market_data] dynamic KR stock universe fetch failed; using static core universe: {exc}')
+        return _static_kr_universe()
+
+
+def _static_kr_universe() -> pd.DataFrame:
+    out = _ensure_sector(mock_data.kr_stock_universe()).copy()
+    defaults = {
+        'market': 'STATIC',
+        'trade_date': 'fallback_static_core',
+        'close_today': 0.0,
+        'volume_today': 0.0,
+        'trade_value_today': 0.0,
+        'change_pct_today': 0.0,
+        'sector_rank': 99,
+        'sector_strength_score': 0.0,
+        'sector_trade_value_krw': 0.0,
+        'sector_avg_change_pct': 0.0,
+        'sector_positive_ratio': 0.0,
+        'market_rotation_score': 0.0,
+    }
+    for col, value in defaults.items():
+        if col not in out.columns:
+            out[col] = value
+    out['code'] = out['code'].astype(str).str.zfill(6)
+    return out[[
+        'code', 'name', 'sector', 'market', 'trade_date', 'close_today', 'volume_today',
+        'trade_value_today', 'change_pct_today', 'sector_rank', 'sector_strength_score',
+        'sector_trade_value_krw', 'sector_avg_change_pct', 'sector_positive_ratio',
+        'market_rotation_score',
+    ]].reset_index(drop=True)
 
 
 def get_kr_sector_snapshot() -> list[dict]:
@@ -389,18 +418,10 @@ def _ensure_sector(df: pd.DataFrame) -> pd.DataFrame:
 
 def _infer_sector(code: str, name: str) -> str:
     known = {
-        '005930': '반도체',
-        '000660': '반도체',
-        '042700': '반도체장비/소재',
-        '039030': '광통신/AI인프라',
-        '094970': '광통신/AI인프라',
-        '038460': '광통신/AI인프라',
-        '267260': '전력기기/전선',
-        '298040': '전력기기/전선',
-        '034020': '원전/에너지',
-        '010120': '전력기기/전선',
-        '064350': '방산/철도',
-        '352820': '엔터',
+        '005930': '반도체', '000660': '반도체', '042700': '반도체장비/소재',
+        '039030': '광통신/AI인프라', '094970': '광통신/AI인프라', '038460': '광통신/AI인프라',
+        '267260': '전력기기/전선', '298040': '전력기기/전선', '034020': '원전/에너지',
+        '010120': '전력기기/전선', '064350': '방산/철도', '352820': '엔터',
     }
     if code in known:
         return known[code]
