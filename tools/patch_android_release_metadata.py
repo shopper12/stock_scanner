@@ -25,6 +25,12 @@ def _patch_main_activity() -> None:
     path = Path('app/src/main/java/com/stockscanner/MainActivity.kt')
     text = path.read_text(encoding='utf-8')
 
+    if 'STOCK_CHART_URL' not in text:
+        text = text.replace(
+            'private const val STOCK_STRATEGY_URL = "$API_BASE_URL/api/kr-stock-strategy"',
+            'private const val STOCK_STRATEGY_URL = "$API_BASE_URL/api/kr-stock-strategy"\nprivate const val STOCK_CHART_URL = "$API_BASE_URL/api/kr-stock-chart"'
+        )
+
     text = text.replace(
         'val scanResult = runScan(key)\n            snapshot = fetchSnapshotOrNull()',
         'val scanResult = runScan(key)\n            snapshot = scanResult.snapshot ?: fetchSnapshotOrNull()'
@@ -42,8 +48,19 @@ def _patch_main_activity() -> None:
         'private data class RunScanResult(val krShortCount: Int)',
         'private data class RunScanResult(val krShortCount: Int, val snapshot: StockSnapshot?)'
     )
+
+    if 'ChartActivity::class.java' not in text:
+        text = text.replace(
+            'private fun StockCard(stock: KrShortStock) {\n    Card(',
+            'private fun StockCard(stock: KrShortStock) {\n    val context = LocalContext.current\n    Card('
+        )
+        text = text.replace(
+            'Text("Invalidation: ${stock.failureCondition}")',
+            'Text("Invalidation: ${stock.failureCondition}")\n            Button(onClick = { context.startActivity(Intent(context, ChartActivity::class.java).putExtra("code", stock.code)) }) { Text("차트 보기") }'
+        )
+
     path.write_text(text, encoding='utf-8')
-    print('Patched Android MainActivity: run-scan payload is displayed directly')
+    print('Patched Android MainActivity: run-scan payload and chart button enabled')
 
 
 if __name__ == '__main__':
