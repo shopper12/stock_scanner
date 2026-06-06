@@ -5,7 +5,7 @@ import os
 import pandas as pd
 from config import settings
 from data import mock_data
-from data.market_data import _attach_names_and_sectors, _filter_common_stocks, _latest_kr_market_ohlcv, _ensure_sector, _fallback_or_raise
+from data.market_data import _attach_names_and_sectors, _filter_common_stocks, _latest_kr_market_ohlcv, _ensure_sector
 
 
 def get_kr_stock_universe_fast() -> pd.DataFrame:
@@ -15,9 +15,14 @@ def get_kr_stock_universe_fast() -> pd.DataFrame:
     KOSPI/KOSDAQ/KONEX rows that pass the basic price/trade-value gate, unless
     KR_FAST_UNIVERSE_TOP_N or KR_UNIVERSE_TOP_N is explicitly set to a positive
     number.
+
+    If live KRX universe discovery fails, return a static core KR universe rather
+    than raising. The later per-symbol OHLCV fetch still uses live pykrx/yfinance
+    unless USE_MOCK_DATA=1, so this fallback avoids a full API 400 while keeping
+    price data live where possible.
     """
     if settings.use_mock_data:
-        return _ensure_fast_columns(_ensure_sector(mock_data.kr_stock_universe())).reset_index(drop=True)
+        return _fallback_fast_universe()
     try:
         market_df, trade_date = _latest_kr_market_ohlcv()
         market_df = _attach_names_and_sectors(market_df)
@@ -40,7 +45,12 @@ def get_kr_stock_universe_fast() -> pd.DataFrame:
             market_df = market_df.head(top_n)
         return _ensure_fast_columns(market_df).reset_index(drop=True)
     except Exception as exc:
-        return _fallback_or_raise(lambda: _ensure_fast_columns(_ensure_sector(mock_data.kr_stock_universe())).reset_index(drop=True), 'Fast KR stock universe fetch failed', exc)
+        print(f'[market_data_fast] fast KR stock universe fetch failed; using static core universe: {exc}')
+        return _fallback_fast_universe()
+
+
+def _fallback_fast_universe() -> pd.DataFrame:
+    return _ensure_fast_columns(_ensure_sector(mock_data.kr_stock_universe())).reset_index(drop=True)
 
 
 def _fast_universe_top_n() -> int | None:
@@ -68,8 +78,8 @@ def _fast_rank_score(df: pd.DataFrame) -> pd.Series:
 def _ensure_fast_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     defaults = {
-        'market': 'UNKNOWN',
-        'trade_date': 'unknown',
+        'market': 'STATIC',
+        'trade_date': 'fallback_static_core',
         'close_today': 0.0,
         'volume_today': 0.0,
         'trade_value_today': 0.0,
@@ -81,6 +91,7 @@ def _ensure_fast_columns(df: pd.DataFrame) -> pd.DataFrame:
     for col, value in defaults.items():
         if col not in out.columns:
             out[col] = value
+    out['code'] = out['code'].astype(str).str.zfill(6)
     out['sector_rank'] = 99
     out['sector_strength_score'] = 0.0
     out['market_rotation_score'] = 0.0
