@@ -5,7 +5,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from strategies.kr_short_rules import KrShortRules, load_kr_short_rules, save_kr_short_rules
 
@@ -84,6 +84,17 @@ def _latest_payload() -> tuple[int, dict]:
     if status == 200:
         data.setdefault('kr_sector_snapshot', _sector_snapshot_from_latest(data))
     return status, data
+
+
+def _chart_payload(code: str, days: int = 120) -> dict:
+    code = str(code or '').strip().zfill(6)
+    if not code or code == '000000':
+        raise ValueError('code is required')
+    days = max(20, min(int(days or 120), 252))
+    from data.chart_builder import build_chart_payload, find_latest_strategy_row, get_backtest_trades_for_code
+    strategy_row = find_latest_strategy_row(code)
+    trades = get_backtest_trades_for_code(code)
+    return build_chart_payload(code=code, days=days, strategy_row=strategy_row, backtest_trades=trades)
 
 
 def _sector_snapshot_from_latest(data: dict) -> list[dict]:
@@ -354,15 +365,16 @@ def _bool_value(value) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'StockScannerAPI/1.9'
+    server_version = 'StockScannerAPI/2.0'
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path.rstrip('/') or '/'
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip('/') or '/'
         if path in {'/', '/health'}:
             self._send_json(200, {
                 'ok': True,
                 'service': 'stock_scanner_api',
-                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/recommendation-performance', '/api/update-recommendation-pnl', '/api/kr-sector-snapshot', '/api/kr-backtest', '/api/kr-stock-strategy', '/api/chatgpt-picks', '/api/kakao-skill'],
+                'endpoints': ['/api/latest', '/api/quote-quality', '/api/kr-short-rules', '/api/run-scan', '/api/recommendation-history', '/api/recommendation-performance', '/api/update-recommendation-pnl', '/api/kr-sector-snapshot', '/api/kr-backtest', '/api/kr-stock-strategy', '/api/kr-stock-chart', '/api/chatgpt-picks', '/api/kakao-skill'],
                 'write_enabled': _write_enabled(),
                 'latest_report_exists': LATEST_PATH.exists(),
                 'quote_quality_report_exists': QUOTE_QUALITY_PATH.exists(),
@@ -375,6 +387,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/latest':
             status, data = _latest_payload()
             self._send_json(status, data)
+            return
+        if path == '/api/kr-stock-chart':
+            query = parse_qs(parsed.query)
+            code = (query.get('code') or [''])[0]
+            days = int((query.get('days') or ['120'])[0] or 120)
+            self._send_json(200, _chart_payload(code, days))
             return
         if path == '/api/kr-sector-snapshot':
             status, data = _latest_payload()
@@ -409,7 +427,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip('/') or '/'
-        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest', '/api/kr-stock-strategy', '/api/update-recommendation-pnl', '/api/chatgpt-picks', '/api/kakao-skill'}:
+        if path not in {'/api/kr-short-rules', '/api/run-scan', '/api/run-backtest', '/api/kr-stock-strategy', '/api/kr-stock-chart', '/api/update-recommendation-pnl', '/api/chatgpt-picks', '/api/kakao-skill'}:
             self._send_json(404, {'ok': False, 'error': 'not_found', 'path': path})
             return
         try:
@@ -449,6 +467,10 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._read_body_json()
                 query = str(body.get('query') or body.get('code') or body.get('name') or '').strip()
                 self._send_json(200, analyze_kr_stock_strategy(query))
+                return
+            if path == '/api/kr-stock-chart':
+                body = self._read_body_json()
+                self._send_json(200, _chart_payload(str(body.get('code') or ''), int(body.get('days') or 120)))
                 return
             if path == '/api/chatgpt-picks':
                 body = self._read_body_json()
