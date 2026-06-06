@@ -18,7 +18,7 @@ REPORT_DIR = Path(__file__).resolve().parents[1] / 'reports'
 REPORT_PATH = REPORT_DIR / 'kr_short_evolution_latest.json'
 
 
-def run_kr_short_backtest(rules: KrShortRules | None = None, max_symbols: int | None = None) -> dict:
+def run_kr_short_backtest(rules: KrShortRules | None = None, max_symbols: int | None = None, write_trades: bool = False) -> dict:
     rules = rules or load_kr_short_rules()
     universe = get_kr_stock_universe()
     if max_symbols:
@@ -34,6 +34,12 @@ def run_kr_short_backtest(rules: KrShortRules | None = None, max_symbols: int | 
         except Exception:
             continue
 
+    if write_trades:
+        try:
+            from data.chart_builder import save_backtest_trades
+            save_backtest_trades(trades)
+        except Exception:
+            pass
     return _summarise(trades, rules)
 
 
@@ -49,6 +55,7 @@ def evolve_kr_short_rules(write: bool = False, max_symbols: int | None = None, a
 
     base_fitness = _fitness(base_summary, audit_summary)
     best_rules, best_summary, best_fitness = max(scored, key=lambda x: x[2], default=(base, base_summary, base_fitness))
+    best_summary = run_kr_short_backtest(best_rules, max_symbols=max_symbols, write_trades=True)
     improvement = best_fitness - base_fitness
     accepted = _passes_guardrails(best_rules, best_summary) and improvement >= getattr(base, 'min_improvement_score', 0.05)
 
@@ -65,6 +72,7 @@ def evolve_kr_short_rules(write: bool = False, max_symbols: int | None = None, a
         'write_requested': write,
         'missed_surge_audit': audit_summary,
         'candidate_count': len(candidates),
+        'trades_report': 'reports/kr_short_trades_latest.json',
     }
     if ai_review:
         try:
@@ -153,19 +161,26 @@ def _backtest_one_symbol(hist: pd.DataFrame, row: dict, rules: KrShortRules) -> 
         if future.empty or surge_future.empty:
             continue
 
-        trade_return, exit_reason = _simulate_trade(entry, stop, future, rules.hold_days)
+        trade_return, exit_reason, exit_date, exit_price = _simulate_trade(entry, stop, future, rules.hold_days)
         max_forward = float(surge_future['high'].max() / price - 1.0)
         caught_surge = max_forward >= rules.surge_threshold_pct / 100.0
         risk_per_share = max(entry - stop, price * 0.01)
+        target1 = entry + risk_per_share * 2.0
+        target2 = entry + risk_per_share * 3.2
         out.append({
             'code': str(row.get('code', '')).zfill(6),
             'name': row.get('name', ''),
             'sector': row.get('sector', '기타'),
             'date': str(latest['date'].date() if hasattr(latest['date'], 'date') else latest['date']),
+            'entry_date': str(latest['date'].date() if hasattr(latest['date'], 'date') else latest['date']),
+            'exit_date': exit_date,
             'setup': setup,
             'score': round(score, 2),
             'entry': round(entry, 2),
             'stop': round(stop, 2),
+            'target1': round(target1, 2),
+            'target2': round(target2, 2),
+            'exit_price': round(exit_price, 2),
             'risk_pct': round(risk_pct, 2),
             'trade_return_pct': round(trade_return * 100, 2),
             'exit_reason': exit_reason,
@@ -178,32 +193,33 @@ def _backtest_one_symbol(hist: pd.DataFrame, row: dict, rules: KrShortRules) -> 
     return out
 
 
-def _simulate_trade(entry: float, stop: float, future: pd.DataFrame, hold_days: int) -> tuple[float, str]:
+def _simulate_trade(entry: float, stop: float, future: pd.DataFrame, hold_days: int) -> tuple[float, str, str, float]:
     risk = max(entry - stop, entry * 0.01)
     target1 = entry + risk * 2.0
     target2 = entry + risk * 3.2
     entered = False
     last_close = entry
+    last_date = ''
     for _, bar in future.head(hold_days).iterrows():
         low = float(bar['low'])
         high = float(bar['high'])
         close = float(bar['close'])
+        last_close = close
+        last_date = str(bar['date'].date() if hasattr(bar['date'], 'date') else bar['date'])
         if not entered:
             if high >= entry:
                 entered = True
             else:
-                last_close = close
                 continue
         if low <= stop:
-            return stop / entry - 1.0, 'stop'
+            return stop / entry - 1.0, 'stop', last_date, stop
         if high >= target2:
-            return target2 / entry - 1.0, 'target2'
+            return target2 / entry - 1.0, 'target2', last_date, target2
         if high >= target1:
-            return target1 / entry - 1.0, 'target1'
-        last_close = close
+            return target1 / entry - 1.0, 'target1', last_date, target1
     if not entered:
-        return 0.0, 'not_entered'
-    return last_close / entry - 1.0, 'time_exit'
+        return 0.0, 'not_entered', last_date, last_close
+    return last_close / entry - 1.0, 'time_exit', last_date, last_close
 
 
 def _summarise(trades: list[dict], rules: KrShortRules) -> dict:
@@ -258,45 +274,40 @@ def _candidate_rules(base: KrShortRules, audit_summary: dict | None = None) -> l
             for max_risk in sorted(set([base.max_risk_pct - 2, base.max_risk_pct, base.max_risk_pct + 2])):
                 if score_threshold < 48 or max_gap < 6 or max_risk < 5:
                     continue
-                candidates.append(replace(base, score_threshold=float(score_threshold), max_gap_ma20_pct=float(max_gap), max_risk_pct=float(max_risk)))
-    unique: dict[tuple[float, float, float], KrShortRules] = {}
-    for candidate in candidates:
-        key = (float(candidate.score_threshold), float(candidate.max_gap_ma20_pct), float(candidate.max_risk_pct))
-        unique[key] = candidate
-    return list(unique.values())
-
-
-def _fitness(summary: dict, audit_summary: dict | None = None) -> float:
-    trades = summary.get('trades', 0)
-    if trades <= 0:
-        return -999.0
-    sample_penalty = min(1.0, trades / 30.0)
-    avg_return = summary.get('avg_return_pct', 0.0)
-    surge_precision = summary.get('surge_precision', 0.0)
-    profit_factor = min(summary.get('profit_factor', 0.0), 3.0)
-    stop_rate = summary.get('stop_rate', 1.0)
-    win_rate = summary.get('win_rate', 0.0)
-    missed_total = float((audit_summary or {}).get('total_missed', 0) or 0)
-    missed_penalty = min(missed_total * 0.05, 1.0)
-    return sample_penalty * (
-        avg_return * 0.40
-        + (win_rate - 0.50) * 12.0
-        + surge_precision * 6.0
-        + profit_factor * 1.0
-        - stop_rate * 2.5
-        - missed_penalty
-    )
+                candidates.append(replace(base, score_threshold=score_threshold, max_gap_ma20_pct=max_gap, max_risk_pct=max_risk))
+    return candidates
 
 
 def _passes_guardrails(rules: KrShortRules, summary: dict) -> bool:
     return (
         summary.get('trades', 0) >= rules.min_backtest_trades
-        and summary.get('surge_precision', 0.0) >= getattr(rules, 'min_surge_precision', 0.15)
-        and summary.get('avg_return_pct', 0.0) >= getattr(rules, 'min_avg_return_pct', 0.3)
-        and summary.get('profit_factor', 0.0) >= getattr(rules, 'min_profit_factor', 1.05)
-        and summary.get('win_rate', 0.0) >= getattr(rules, 'min_win_rate', 0.45)
+        and summary.get('surge_precision', 0.0) >= rules.min_surge_precision
+        and summary.get('avg_return_pct', 0.0) >= rules.min_avg_return_pct
+        and summary.get('profit_factor', 0.0) >= rules.min_profit_factor
+        and summary.get('win_rate', 0.0) >= rules.min_win_rate
     )
 
 
-def _ratio(num: float, den: float) -> float:
-    return 0.0 if den <= 0 else num / den
+def _fitness(summary: dict, audit_summary: dict | None = None) -> float:
+    audit_summary = audit_summary or {}
+    trade_penalty = 0.0 if summary.get('trades', 0) >= 10 else -1.0
+    missed_count = float(audit_summary.get('total_missed', 0) or 0)
+    near_threshold = float(audit_summary.get('within_5pts_of_threshold', 0) or 0)
+    missed_penalty = min(missed_count / 200.0, 1.0)
+    recoverable_bonus = min(near_threshold / 50.0, 0.5)
+    return (
+        summary.get('avg_return_pct', 0.0) / 10.0
+        + summary.get('win_rate', 0.0)
+        + summary.get('surge_precision', 0.0)
+        + min(summary.get('profit_factor', 0.0), 5.0) / 5.0
+        + summary.get('avg_r_multiple', 0.0) / 3.0
+        + trade_penalty
+        - missed_penalty
+        + recoverable_bonus
+    )
+
+
+def _ratio(value: float, baseline: float) -> float:
+    if baseline <= 0:
+        return 0.0
+    return value / baseline
