@@ -21,6 +21,20 @@
         </provider>
 
         <activity
+            android:name=".ChartActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="stock-scanner-api-5sk6.onrender.com"
+                    android:pathPrefix="/api/kr-stock-chart" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
