@@ -9,6 +9,7 @@ from data.market_data_fast import get_kr_stock_universe_fast
 from strategies import kr_short_stock as base
 
 MIN_TRADE_VALUE_KRW = 5_000_000_000
+RELAXED_MIN_TRADE_VALUE_KRW = 500_000_000
 
 _ORIGINAL_SCAN = base.scan_kr_short_stocks
 _ORIGINAL_RULES_LOADER = base.load_kr_short_rules
@@ -72,6 +73,7 @@ def _runtime_score(price: float, ma20: float, ma60: float, ma120: float, ma200: 
 
 def _drop_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
+        print('[runtime_filter] input_empty=true')
         return df
     out = df.copy()
     trade_value = pd.to_numeric(out.get('trade_value_krw'), errors='coerce').fillna(0.0)
@@ -89,20 +91,56 @@ def _drop_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
     weak_backtested_setup = setup.isin(['breakout', 'trend_continuation'])  # [FIX-2] PF < 1.0 setup 제거
     non_theme_excess_risk = (setup != 'theme_repricing_breakout') & (risk > original_max_risk)  # [FIX-3] 16% 완화는 theme에만 적용
     watch_without_pullback = (setup == 'watch') & (drawdown52w > -3.0)  # [FIX-4] 눌림 없는 watch 제거
-    out = out.loc[
+    final_mask = (
         liquid
         & valid_value_ratio
         & ~(low_volume_watch | low_value_and_volume_watch)
         & ~weak_backtested_setup
         & ~non_theme_excess_risk
         & ~watch_without_pullback
-    ].copy()
-    if out.empty:
-        return out.reset_index(drop=True)
-    out['sector_rank'] = 99
-    out['sector_strength_score'] = 0.0
-    out['market_rotation_score'] = 0.0
-    return out.sort_values(['score', 'trade_value_krw', 'change_pct_today'], ascending=[False, False, False]).reset_index(drop=True).head(_top_n())
+    )
+    _print_runtime_filter_stats(out, liquid, valid_value_ratio, low_volume_watch, low_value_and_volume_watch, weak_backtested_setup, non_theme_excess_risk, watch_without_pullback, final_mask)
+    filtered = out.loc[final_mask].copy()
+    if filtered.empty:
+        filtered = _relaxed_fallback(out, trade_value, setup, risk, original_max_risk)
+    if filtered.empty:
+        return filtered.reset_index(drop=True)
+    filtered['sector_rank'] = 99
+    filtered['sector_strength_score'] = 0.0
+    filtered['market_rotation_score'] = 0.0
+    return filtered.sort_values(['score', 'trade_value_krw', 'change_pct_today'], ascending=[False, False, False]).reset_index(drop=True).head(_top_n())
+
+
+def _print_runtime_filter_stats(out: pd.DataFrame, liquid: pd.Series, valid_value_ratio: pd.Series, low_volume_watch: pd.Series, low_value_and_volume_watch: pd.Series, weak_backtested_setup: pd.Series, non_theme_excess_risk: pd.Series, watch_without_pullback: pd.Series, final_mask: pd.Series) -> None:
+    stats = {
+        'input': int(len(out)),
+        'liquid_pass': int(liquid.sum()),
+        'value_ratio_pass': int(valid_value_ratio.sum()),
+        'low_volume_watch': int(low_volume_watch.sum()),
+        'low_value_and_volume_watch': int(low_value_and_volume_watch.sum()),
+        'weak_setup': int(weak_backtested_setup.sum()),
+        'excess_risk': int(non_theme_excess_risk.sum()),
+        'watch_without_pullback': int(watch_without_pullback.sum()),
+        'final_pass': int(final_mask.sum()),
+    }
+    top = out[['code', 'name', 'strategy_type', 'score', 'trade_value_krw', 'trade_value_ratio_20d', 'risk_pct', 'drawdown_52w_pct']].head(10).to_dict('records') if not out.empty else []
+    print(f'[runtime_filter] stats={stats}')
+    print(f'[runtime_filter] top_before_filter={top}')
+
+
+def _relaxed_fallback(out: pd.DataFrame, trade_value: pd.Series, setup: pd.Series, risk: pd.Series, original_max_risk: float) -> pd.DataFrame:
+    relaxed_mask = (
+        (trade_value >= RELAXED_MIN_TRADE_VALUE_KRW)
+        & ~setup.isin(['breakout', 'trend_continuation'])
+        & ((setup == 'theme_repricing_breakout') | (risk <= max(original_max_risk, 16.0)))
+    )
+    relaxed = out.loc[relaxed_mask].copy()
+    if relaxed.empty:
+        print('[runtime_filter] relaxed_fallback_pass=0')
+        return relaxed
+    relaxed['reason'] = relaxed.get('reason', '').astype(str) + ' + KRX/거래대금 데이터 불안정으로 완화 fallback 적용'
+    print(f'[runtime_filter] relaxed_fallback_pass={len(relaxed)}')
+    return relaxed
 
 
 def _load_runtime_rules():
