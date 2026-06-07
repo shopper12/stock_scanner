@@ -117,10 +117,11 @@ def _chart_payload(code: str, days: int = 120) -> dict:
     if not code or code == '000000':
         raise ValueError('code is required')
     days = max(20, min(int(days or 120), 252))
-    from data.chart_builder import build_chart_payload, find_latest_strategy_row, get_backtest_trades_for_code
+    from data.chart_builder import find_latest_strategy_row, get_backtest_trades_for_code
+    from data.chart_builder_live import build_live_chart_payload
     strategy_row = find_latest_strategy_row(code)
     trades = get_backtest_trades_for_code(code)
-    return build_chart_payload(code=code, days=days, strategy_row=strategy_row, backtest_trades=trades)
+    return build_live_chart_payload(code=code, days=days, strategy_row=strategy_row, backtest_trades=trades)
 
 
 def _sector_snapshot_from_latest(data: dict) -> list[dict]:
@@ -490,7 +491,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == '/api/kr-stock-chart':
                 body = self._read_body_json()
-                self._send_json(200, _chart_payload(str(body.get('code') or ''), int(body.get('days') or 120)))
+                code = str(body.get('code') or body.get('query') or '').strip()
+                days = int(body.get('days') or 120)
+                self._send_json(200, _chart_payload(code, days))
                 return
             if path == '/api/chatgpt-picks':
                 body = self._read_body_json()
