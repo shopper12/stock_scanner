@@ -51,6 +51,11 @@ def analyze_kr_stock_strategy(query: str) -> dict:
     result['resolved_by'] = target.get('resolved_by', result.get('resolved_by', 'enhanced'))
     if target.get('name') and (not result.get('name') or result.get('name') == result.get('code')):
         result['name'] = target['name']
+    result['code'] = str(result.get('code') or target['code']).zfill(6)
+    result['name'] = str(result.get('name') or target.get('name') or result['code'])
+    result['display_name'] = _display_name(result)
+    result['stock_label'] = result['display_name']
+    result['title'] = result['display_name']
     result['scanner_exclusion_diagnosis'] = diagnose_scanner_exclusion(result)
     return result
 
@@ -60,16 +65,25 @@ def resolve_kr_stock_query(query: str) -> dict:
     if not q:
         raise ValueError('query is required')
     if q.isdigit():
-        return base_resolve(q)
+        resolved = base_resolve(q)
+        resolved['code'] = str(resolved.get('code') or q).zfill(6)
+        resolved['display_name'] = _display_name(resolved)
+        return resolved
     q_norm = _normalise_name(q)
     static_code = STATIC_NAME_TO_CODE.get(q_norm)
     if static_code:
-        return _resolve_static(static_code, q)
+        resolved = _resolve_static(static_code, q)
+        resolved['display_name'] = _display_name(resolved)
+        return resolved
     try:
-        return base_resolve(q)
+        resolved = base_resolve(q)
+        resolved['code'] = str(resolved.get('code') or '').zfill(6)
+        resolved['display_name'] = _display_name(resolved)
+        return resolved
     except Exception as exc:
         cached = _resolve_by_cached_reports(q_norm)
         if cached:
+            cached['display_name'] = _display_name(cached)
             return cached
         raise ValueError(f'no KR stock match for query={query}. base_error={exc}')
 
@@ -79,8 +93,15 @@ def diagnose_scanner_exclusion(strategy: dict) -> dict:
     latest = _read_json(LATEST_PATH)
     rows = latest.get('kr_short_stocks') or []
     selected_codes = {str(row.get('code') or '').zfill(6) for row in rows}
+    selected_labels = [_display_name(row) for row in rows[:20]]
     if code in selected_codes:
-        return {'selected': True, 'reason': '현재 latest.json 추천 후보에 포함됨', 'latest_count': len(rows)}
+        return {
+            'selected': True,
+            'display_name': _display_name(strategy),
+            'reason': f'{_display_name(strategy)} 현재 latest.json 추천 후보에 포함됨',
+            'latest_count': len(rows),
+            'selected_labels': selected_labels,
+        }
 
     rules = load_kr_short_rules()
     setup = str(strategy.get('setup') or '')
@@ -120,9 +141,11 @@ def diagnose_scanner_exclusion(strategy: dict) -> dict:
 
     return {
         'selected': False,
-        'reason': '; '.join(filters),
+        'display_name': _display_name(strategy),
+        'reason': f'{_display_name(strategy)} 제외 사유: ' + '; '.join(filters),
         'latest_count': len(rows),
         'selected_codes': list(selected_codes)[:20],
+        'selected_labels': selected_labels,
         'evaluation': '100점이어도 수동 base 점수와 실제 runtime 추천 필터가 달라 제외될 수 있음',
     }
 
@@ -146,6 +169,14 @@ def _resolve_by_cached_reports(q_norm: str) -> dict | None:
             if name and code and _normalise_name(name) == q_norm:
                 return {'code': code, 'name': name, 'market': row.get('market', 'CACHED'), 'sector': row.get('sector', '기타'), 'resolved_by': f'cache:{path.name}'}
     return None
+
+
+def _display_name(row: dict) -> str:
+    code = str(row.get('code') or '').zfill(6)
+    name = str(row.get('name') or '').strip()
+    if not name or name == code or name == code.lstrip('0'):
+        name = code
+    return f'{name}({code})'
 
 
 def _read_json(path: Path) -> dict:
