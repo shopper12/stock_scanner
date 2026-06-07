@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python api_server.py
+    startCommand: python api_server_start.py
     envVars:
       - key: USE_MOCK_DATA
         value: "0"
