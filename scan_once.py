@@ -28,6 +28,7 @@ def run_full_scan(notify: bool = False, write_report: bool = True) -> dict:
     dca = simple_dca_backtest('VOO', settings.us_monthly_budget_krw, months=24)
     created_at = datetime.now(ZoneInfo(settings.timezone)).strftime('%Y-%m-%d %H:%M:%S %Z')
     kr_short_rows = kr_short.to_dict('records')
+    perplexity_verification = _verify_with_perplexity(kr_short_rows, created_at)
     payload = {
         'schema_version': 1,
         'created_at_kst': created_at,
@@ -38,15 +39,30 @@ def run_full_scan(notify: bool = False, write_report: bool = True) -> dict:
         'kr_retirement_etfs': retirement.to_dict('records'),
         'retirement_risk_report': risk_report,
         'kr_short_stocks': kr_short_rows,
+        'perplexity_verification': perplexity_verification,
         'dca_backtest': dca,
     }
     save_payload('full_scan', payload)
     if write_report:
         write_latest_report(payload)
-        update_recommendation_history(created_at, kr_short_rows)
+        update_recommendation_history(created_at, kr_short_rows, perplexity_verification)
     if notify:
         _send_scan_notification(payload)
     return payload
+
+
+def _verify_with_perplexity(kr_short_rows: list[dict], created_at_kst: str) -> dict:
+    try:
+        from integrations.perplexity_verifier import verify_kr_short_strategy
+        return verify_kr_short_strategy(kr_short_rows, created_at_kst)
+    except Exception as exc:
+        return {
+            'ok': False,
+            'status': 'error',
+            'reason': exc.__class__.__name__,
+            'message': str(exc)[:500],
+            'created_at_kst': datetime.now(ZoneInfo(settings.timezone)).strftime('%Y-%m-%d %H:%M:%S %Z'),
+        }
 
 
 def write_latest_report(payload: dict) -> None:
@@ -54,12 +70,13 @@ def write_latest_report(payload: dict) -> None:
     LATEST_REPORT_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
 
 
-def update_recommendation_history(created_at_kst: str, kr_short_rows: list[dict]) -> dict:
+def update_recommendation_history(created_at_kst: str, kr_short_rows: list[dict], perplexity_verification: dict | None = None) -> dict:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     current = _read_history()
     items = current.get('items', [])
     by_key = {_history_key(item): item for item in items if _history_key(item)}
     scan_date = created_at_kst.split(' ')[0] if created_at_kst else 'unknown'
+    verification_by_code = _perplexity_items_by_code(perplexity_verification or {})
     for row in kr_short_rows:
         code = str(row.get('code', '')).zfill(6)
         if not code:
@@ -67,6 +84,7 @@ def update_recommendation_history(created_at_kst: str, kr_short_rows: list[dict]
         entry = float(row.get('entry') or row.get('current_price') or 0)
         current_price = float(row.get('current_price') or 0)
         key = f'{scan_date}:{code}'
+        verification = verification_by_code.get(code, {})
         by_key[key] = {
             'scan_date': scan_date,
             'recommended_at_kst': created_at_kst,
@@ -87,6 +105,9 @@ def update_recommendation_history(created_at_kst: str, kr_short_rows: list[dict]
             'pnl_krw_per_share': round(current_price - entry) if entry > 0 and current_price > 0 else None,
             'reason': row.get('reason', ''),
             'failure_condition': row.get('failure_condition', ''),
+            'perplexity_verdict': verification.get('verdict'),
+            'perplexity_action_filter': verification.get('action_filter'),
+            'perplexity_one_line': verification.get('one_line'),
         }
         _save_recommendation_for_tracking(scan_date, row, code)
     merged = sorted(by_key.values(), key=lambda x: (x.get('scan_date', ''), x.get('score_at_recommendation') or 0), reverse=True)
@@ -96,6 +117,23 @@ def update_recommendation_history(created_at_kst: str, kr_short_rows: list[dict]
         'items': merged[:300],
     }
     HISTORY_REPORT_PATH.write_text(json.dumps(out, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
+    return out
+
+
+def _perplexity_items_by_code(perplexity_verification: dict) -> dict[str, dict]:
+    result = perplexity_verification.get('result') if isinstance(perplexity_verification, dict) else None
+    if not isinstance(result, dict):
+        return {}
+    rows = result.get('items') or []
+    if not isinstance(rows, list):
+        return {}
+    out: dict[str, dict] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get('code') or '').zfill(6)
+        if code and code != '000000':
+            out[code] = row
     return out
 
 
@@ -161,11 +199,13 @@ def _data_quality(kr_short_rows: list[dict]) -> dict:
 def _mobile_summary(payload: dict) -> str:
     rows = payload.get('kr_short_stocks', [])
     top = rows[0] if rows else {}
+    verify = payload.get('perplexity_verification') or {}
     return '\n'.join([
         f"created_at={payload.get('created_at_kst')}",
         f"mode={payload.get('mode')}",
         f"kr_short_count={len(rows)}",
         f"top={top.get('name', '-') }({top.get('code', '-')}) score={top.get('score', '-')}",
+        f"perplexity={verify.get('status', '-')}/{verify.get('reason', '-')}",
     ])
 
 
