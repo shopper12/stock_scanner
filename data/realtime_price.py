@@ -67,7 +67,7 @@ def _naver_item_summary(code: str) -> Quote:
         change=_to_optional_float(data.get('diff')),
         change_pct=_to_optional_float(data.get('rate')),
         volume=_to_optional_float(data.get('quant')),
-        trade_value=_to_optional_float(data.get('amount')),
+        trade_value=_naver_amount_to_krw(data.get('amount')),  # [FIX-LIQUIDITY] itemSummary amount is million-KRW scale.
     )
 
 
@@ -130,6 +130,13 @@ def _to_optional_float(value: Any) -> float | None:
         return _to_float(value)
     except Exception:
         return None
+
+
+def _naver_amount_to_krw(value: Any) -> float | None:
+    amount = _to_optional_float(value)
+    if amount is None:
+        return None
+    return amount * 1_000_000.0
 
 
 def _now_kst() -> str:
