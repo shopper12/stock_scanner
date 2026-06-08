@@ -1,15 +1,15 @@
 {
-  "created_at_kst": "2026-06-07 19:42:33 KST",
+  "created_at_kst": "2026-06-08 21:47:30 KST",
   "mode": "live",
-  "total": 1,
-  "quote_ok": 1,
+  "total": 3,
+  "quote_ok": 3,
   "quote_failed": 0,
   "quote_ok_rate": 1.0,
   "by_source": {
-    "naver_item_summary": 1
+    "naver_item_summary": 3
   },
   "by_price_basis": {
-    "realtime_quote": 1
+    "realtime_quote": 3
   },
   "sector_snapshot_count": 0,
   "top_sectors": [],
