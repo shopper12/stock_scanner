@@ -102,12 +102,28 @@ def _refreshed_message() -> str:
     return str(data.get("report") or "뉴스 없음").strip() or "뉴스 없음"
 
 
+def _debug_payload() -> dict:
+    data = _report_data()
+    report = str(data.get("report") or "")
+    return {
+        "ok": bool(data.get("ok", False)),
+        "version": "news-public-message-v3",
+        "kind": data.get("kind"),
+        "hours": data.get("hours"),
+        "source": data.get("source"),
+        "generated_at": data.get("generated_at"),
+        "fallback_reason": data.get("fallback_reason"),
+        "report_length": len(report),
+        "report_preview": report[:500],
+    }
+
+
 @app.get("/")
 def root() -> dict:
     return {
         "ok": True,
         "service": "telegram_news_bot_api",
-        "version": "news-fast-read-v2",
+        "version": "news-public-message-v3",
         "endpoints": [
             "/health",
             "/api/news",
@@ -125,42 +141,26 @@ def root() -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "telegram_news_bot_api", "version": "news-fast-read-v2"}
+    return {"ok": True, "service": "telegram_news_bot_api", "version": "news-public-message-v3"}
 
 
 @app.get("/api/debug-news")
-def debug_news(x_api_key: str | None = Header(default=None)) -> dict:
-    _require_api_key(x_api_key)
-    data = _report_data()
-    report = str(data.get("report") or "")
-    return {
-        "ok": bool(data.get("ok", False)),
-        "version": "news-fast-read-v2",
-        "kind": data.get("kind"),
-        "hours": data.get("hours"),
-        "source": data.get("source"),
-        "generated_at": data.get("generated_at"),
-        "fallback_reason": data.get("fallback_reason"),
-        "report_length": len(report),
-        "report_preview": report[:500],
-    }
+def debug_news() -> dict:
+    return _debug_payload()
 
 
 @app.get("/api/news")
-def get_news(x_api_key: str | None = Header(default=None)) -> dict:
-    _require_api_key(x_api_key)
+def get_news() -> dict:
     return _report_data()
 
 
 @app.get("/api/news-message")
-def get_news_message(x_api_key: str | None = Header(default=None)) -> dict:
-    _require_api_key(x_api_key)
+def get_news_message() -> dict:
     return _bot_message_payload()
 
 
 @app.get("/api/news.txt", response_class=PlainTextResponse)
-def get_news_text(x_api_key: str | None = Header(default=None)) -> str:
-    _require_api_key(x_api_key)
+def get_news_text() -> str:
     return _report_text()
 
 
