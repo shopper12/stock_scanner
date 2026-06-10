@@ -4,26 +4,90 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+import requests
 import yfinance as yf
 
 from config import settings
 
 US_ALIASES = {
-    '애플': 'AAPL', 'apple': 'AAPL',
-    '마이크로소프트': 'MSFT', 'microsoft': 'MSFT',
+    '애플': 'AAPL', 'apple': 'AAPL', 'iphone': 'AAPL',
+    '마이크로소프트': 'MSFT', 'microsoft': 'MSFT', 'ms': 'MSFT',
     '엔비디아': 'NVDA', 'nvidia': 'NVDA',
     '테슬라': 'TSLA', 'tesla': 'TSLA',
     '아마존': 'AMZN', 'amazon': 'AMZN',
     '구글': 'GOOGL', '알파벳': 'GOOGL', 'google': 'GOOGL', 'alphabet': 'GOOGL',
-    '메타': 'META', 'meta': 'META',
+    '메타': 'META', 'meta': 'META', '페이스북': 'META',
     '브로드컴': 'AVGO', 'broadcom': 'AVGO',
     '팔란티어': 'PLTR', 'palantir': 'PLTR',
     '코인베이스': 'COIN', 'coinbase': 'COIN',
     '마이크론': 'MU', 'micron': 'MU',
-    '슈퍼마이크로': 'SMCI', 'supermicro': 'SMCI',
-    'amd': 'AMD', 'soxl': 'SOXL', 'tqqq': 'TQQQ', 'sqqq': 'SQQQ',
-    'spy': 'SPY', 'qqq': 'QQQ', 'voo': 'VOO', 'koru': 'KORU',
+    '슈퍼마이크로': 'SMCI', 'supermicro': 'SMCI', '슈마컴': 'SMCI',
+    '넷플릭스': 'NFLX', 'netflix': 'NFLX',
+    '오라클': 'ORCL', 'oracle': 'ORCL',
+    '세일즈포스': 'CRM', 'salesforce': 'CRM',
+    '어도비': 'ADBE', 'adobe': 'ADBE',
+    '월마트': 'WMT', 'walmart': 'WMT',
+    '코스트코': 'COST', 'costco': 'COST',
+    '일라이릴리': 'LLY', '릴리': 'LLY', 'eli lilly': 'LLY',
+    '노보노디스크': 'NVO', 'novo nordisk': 'NVO',
+    '유나이티드헬스': 'UNH', 'unitedhealth': 'UNH',
+    '비자': 'V', 'visa': 'V',
+    '마스터카드': 'MA', 'mastercard': 'MA',
+    '제이피모건': 'JPM', 'jp모건': 'JPM', 'jpmorgan': 'JPM',
+    '뱅크오브아메리카': 'BAC', 'boa': 'BAC',
+    '엑슨모빌': 'XOM', 'exxon': 'XOM',
+    '셰브론': 'CVX', 'chevron': 'CVX',
+    '록히드마틴': 'LMT', 'lockheed': 'LMT',
+    'amd': 'AMD',
+    '인텔': 'INTC', 'intel': 'INTC',
+    '퀄컴': 'QCOM', 'qualcomm': 'QCOM',
+    'asml': 'ASML',
+    'tsmc': 'TSM', '대만반도체': 'TSM',
+    'arm': 'ARM',
+    'sofi': 'SOFI', '소파이': 'SOFI',
+    '로빈후드': 'HOOD', 'robinhood': 'HOOD',
+    '리비안': 'RIVN', 'rivian': 'RIVN',
+    '루시드': 'LCID', 'lucid': 'LCID',
+    '스노우플레이크': 'SNOW', 'snowflake': 'SNOW',
+    '크라우드스트라이크': 'CRWD', 'crowdstrike': 'CRWD',
+    '유아이패스': 'PATH', 'uipath': 'PATH',
+    '스포티파이': 'SPOT', 'spotify': 'SPOT',
+    '우버': 'UBER', 'uber': 'UBER',
+    '에어비앤비': 'ABNB', 'airbnb': 'ABNB',
+
+    # Broad ETFs / leveraged ETFs
+    'spy': 'SPY', 's&p500': 'SPY', 'sp500': 'SPY', 'snp500': 'SPY', '에스앤피500': 'SPY', '미국대표지수': 'SPY',
+    'voo': 'VOO', 'vti': 'VTI', 'ivv': 'IVV',
+    'qqq': 'QQQ', '나스닥100': 'QQQ', '나스닥etf': 'QQQ', '미국나스닥': 'QQQ',
+    'dia': 'DIA', '다우': 'DIA', 'dow': 'DIA',
+    'iwm': 'IWM', '러셀2000': 'IWM', 'russell2000': 'IWM',
+    'soxx': 'SOXX', 'smh': 'SMH', '반도체etf': 'SMH', '미국반도체': 'SMH',
+    'soxl': 'SOXL', '반도체3배': 'SOXL', '반도체레버리지': 'SOXL',
+    'soxs': 'SOXS', '반도체인버스': 'SOXS',
+    'tqqq': 'TQQQ', '나스닥3배': 'TQQQ', '나스닥레버리지': 'TQQQ',
+    'sqqq': 'SQQQ', '나스닥인버스': 'SQQQ',
+    'upro': 'UPRO', 'spxl': 'SPXL', 'spxs': 'SPXS',
+    'tmf': 'TMF', 'tlt': 'TLT', '미국장기채': 'TLT', '장기채': 'TLT',
+    'ief': 'IEF', 'shy': 'SHY',
+    'gld': 'GLD', '금etf': 'GLD', 'gold': 'GLD',
+    'slv': 'SLV', '은etf': 'SLV', 'silver': 'SLV',
+    'uso': 'USO', '원유etf': 'USO', 'oil': 'USO',
+    'xle': 'XLE', '에너지etf': 'XLE',
+    'xlk': 'XLK', '기술주etf': 'XLK',
+    'xlf': 'XLF', '금융etf': 'XLF',
+    'xlv': 'XLV', '헬스케어etf': 'XLV',
+    'xly': 'XLY', '임의소비재etf': 'XLY',
+    'xlp': 'XLP', '필수소비재etf': 'XLP',
+    'xli': 'XLI', '산업재etf': 'XLI',
+    'xlu': 'XLU', '유틸리티etf': 'XLU',
+    'xme': 'XME', '광산etf': 'XME',
+    'arkk': 'ARKK', '아크': 'ARKK',
+    'schd': 'SCHD', '미국배당': 'SCHD', '배당etf': 'SCHD',
+    'jepi': 'JEPI', 'jepq': 'JEPQ',
+    'koru': 'KORU', '한국3배': 'KORU',
 }
+
+KR_ASCII_RESERVED = {'naver', 'kakao', 'posco', 'samsung', 'hyundai', 'kia', 'lg', 'sk'}
 
 
 def is_us_stock_query(query: str) -> bool:
@@ -31,12 +95,19 @@ def is_us_stock_query(query: str) -> bool:
     key = q.lower().replace(' ', '')
     if key in US_ALIASES:
         return True
+    if key in KR_ASCII_RESERVED:
+        return False
     cleaned = q.upper().replace('$', '').strip()
-    return bool(cleaned and cleaned.isascii() and cleaned.replace('.', '').replace('-', '').isalpha() and 1 <= len(cleaned) <= 8)
+    if not cleaned:
+        return False
+    if cleaned.isascii() and cleaned.replace('.', '').replace('-', '').isalpha() and 1 <= len(cleaned) <= 8:
+        return True
+    # English company/ETF names such as "Microsoft Corporation" or "Vanguard S&P 500 ETF".
+    return q.isascii() and any(ch.isalpha() for ch in q) and len(q) <= 80
 
 
 def analyze_us_stock_strategy(query: str) -> dict:
-    ticker = _resolve_us_ticker(query)
+    ticker, resolved_by = _resolve_us_ticker(query)
     hist = yf.download(ticker, period='1y', interval='1d', progress=False, auto_adjust=False)
     if hist is None or hist.empty:
         raise RuntimeError(f'no US history for {ticker}')
@@ -76,15 +147,16 @@ def analyze_us_stock_strategy(query: str) -> dict:
     risk_pct = (entry - stop) / entry * 100.0 if entry else 0.0
     target1 = max(entry, price) * (1.06 if setup == 'theme_repricing_breakout' else 1.08)
     target2 = max(entry, price) * (1.13 if setup == 'theme_repricing_breakout' else 1.16)
-    name, sector = _ticker_info(ticker)
+    name, sector, quote_type = _ticker_info(ticker)
     threshold = 58.0
     action, action_reason = _action(score, threshold, setup, risk_pct, entry, price)
+    asset_class = 'US_ETF' if quote_type.upper() in {'ETF', 'MUTUALFUND'} or sector.upper() in {'ETF', 'MUTUALFUND'} else 'US_STOCK'
     label = f'{name}({ticker})'
     return {
         'ok': True,
-        'asset_class': 'US_STOCK',
+        'asset_class': asset_class,
         'query': query,
-        'resolved_by': 'us_ticker_or_alias',
+        'resolved_by': resolved_by,
         'display_name': label,
         'stock_label': label,
         'title': label,
@@ -93,6 +165,7 @@ def analyze_us_stock_strategy(query: str) -> dict:
         'name': name,
         'market': 'US',
         'sector': sector,
+        'quote_type': quote_type,
         'action': action,
         'action_reason': action_reason,
         'score': round(score, 1),
@@ -114,7 +187,7 @@ def analyze_us_stock_strategy(query: str) -> dict:
         'reason': f'{sector} / {setup} / 20일 모멘텀 {ret20 * 100:.2f}% / 52주 고점대비 {drawdown52w * 100:.2f}% / RSI {rsi14:.1f}',
         'failure_condition': '종가가 stop_loss 하회, 거래량 급감, 나스닥/섹터 급락 시 무효',
         'data_source': 'yfinance',
-        'scanner_exclusion_diagnosis': {'selected': None, 'display_name': label, 'reason': '미국 주식은 검색 분석 대상입니다. 한국 단기 추천 top N과는 별도입니다.'},
+        'scanner_exclusion_diagnosis': {'selected': None, 'display_name': label, 'reason': '미국 주식/ETF는 검색 분석 대상입니다. 한국 단기 추천 top N과는 별도입니다.'},
         'metrics': {
             'ma20': round(ma20, 2), 'ma60': round(ma60, 2), 'ma120': round(ma120, 2), 'ma200': round(ma200, 2),
             'rsi14': round(rsi14, 1), 'volume_ratio_20d': round(volume_ratio, 2), 'trade_value_ratio_20d': 0.0,
@@ -125,12 +198,53 @@ def analyze_us_stock_strategy(query: str) -> dict:
     }
 
 
-def _resolve_us_ticker(query: str) -> str:
+def _resolve_us_ticker(query: str) -> tuple[str, str]:
     q = str(query or '').strip()
     key = q.lower().replace(' ', '')
     if key in US_ALIASES:
-        return US_ALIASES[key]
-    return q.upper().replace('$', '').strip()
+        return US_ALIASES[key], 'us_alias'
+    cleaned = q.upper().replace('$', '').strip()
+    if cleaned.isascii() and cleaned.replace('.', '').replace('-', '').isalpha() and 1 <= len(cleaned) <= 8:
+        return cleaned, 'us_ticker'
+    searched = _yahoo_symbol_search(q)
+    if searched:
+        return searched, 'yahoo_search'
+    return cleaned, 'us_ticker_fallback'
+
+
+def _yahoo_symbol_search(query: str) -> str | None:
+    try:
+        response = requests.get(
+            'https://query2.finance.yahoo.com/v1/finance/search',
+            params={'q': query, 'quotesCount': 10, 'newsCount': 0, 'enableFuzzyQuery': 'true'},
+            headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+            timeout=8,
+        )
+        response.raise_for_status()
+        data = response.json()
+        quotes = data.get('quotes') or []
+        preferred_types = {'EQUITY', 'ETF', 'MUTUALFUND'}
+        preferred_exchanges = {'NMS', 'NYQ', 'NGM', 'NCM', 'ASE', 'PCX', 'BATS'}
+        scored = []
+        for item in quotes:
+            symbol = str(item.get('symbol') or '').upper().strip()
+            quote_type = str(item.get('quoteType') or '').upper()
+            exchange = str(item.get('exchange') or '').upper()
+            if not symbol or quote_type not in preferred_types:
+                continue
+            score = 0
+            if exchange in preferred_exchanges:
+                score += 10
+            if quote_type in {'EQUITY', 'ETF'}:
+                score += 5
+            if symbol.isascii() and len(symbol) <= 8:
+                score += 2
+            scored.append((score, symbol))
+        if not scored:
+            return None
+        return sorted(scored, key=lambda x: x[0], reverse=True)[0][1]
+    except Exception:
+        return None
 
 
 def _flatten_history(df: pd.DataFrame) -> pd.DataFrame:
@@ -142,12 +256,15 @@ def _flatten_history(df: pd.DataFrame) -> pd.DataFrame:
     return out.dropna(subset=['close'])
 
 
-def _ticker_info(ticker: str) -> tuple[str, str]:
+def _ticker_info(ticker: str) -> tuple[str, str, str]:
     try:
         info = yf.Ticker(ticker).get_info()
-        return str(info.get('shortName') or info.get('longName') or ticker), str(info.get('sector') or info.get('quoteType') or 'US')
+        quote_type = str(info.get('quoteType') or 'US')
+        name = str(info.get('shortName') or info.get('longName') or ticker)
+        sector = str(info.get('sector') or quote_type or 'US')
+        return name, sector, quote_type
     except Exception:
-        return ticker, 'US'
+        return ticker, 'US', 'US'
 
 
 def _setup(price: float, ma20: float, ma60: float, ma120: float, ma200: float, high20: float, ret5: float, ret20: float, drawdown52w: float, volume_ratio: float) -> str:
