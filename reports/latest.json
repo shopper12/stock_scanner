@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at_kst": "2026-06-13 19:59:09 KST",
+  "created_at_kst": "2026-06-14 20:14:49 KST",
   "mode": "live",
   "data_quality": {
     "kr_short_total": 5,
@@ -412,7 +412,7 @@
       "market_rotation_score": 0.0,
       "current_price": 322500,
       "price_basis": "realtime_quote",
-      "price_timestamp": "2026-06-13 19:58:54 KST",
+      "price_timestamp": "2026-06-14 20:14:37 KST",
       "history_last_date": "2026-06-12",
       "quote_source": "naver_item_summary",
       "quote_ok": true,
@@ -450,7 +450,7 @@
       "market_rotation_score": 0.0,
       "current_price": 1130000,
       "price_basis": "realtime_quote",
-      "price_timestamp": "2026-06-13 19:58:56 KST",
+      "price_timestamp": "2026-06-14 20:14:39 KST",
       "history_last_date": "2026-06-12",
       "quote_source": "naver_item_summary",
       "quote_ok": true,
@@ -488,7 +488,7 @@
       "market_rotation_score": 0.0,
       "current_price": 208500,
       "price_basis": "realtime_quote",
-      "price_timestamp": "2026-06-13 19:58:59 KST",
+      "price_timestamp": "2026-06-14 20:14:41 KST",
       "history_last_date": "2026-06-12",
       "quote_source": "naver_item_summary",
       "quote_ok": true,
@@ -526,7 +526,7 @@
       "market_rotation_score": 0.0,
       "current_price": 222500,
       "price_basis": "realtime_quote",
-      "price_timestamp": "2026-06-13 19:59:09 KST",
+      "price_timestamp": "2026-06-14 20:14:49 KST",
       "history_last_date": "2026-06-12",
       "quote_source": "naver_item_summary",
       "quote_ok": true,
@@ -564,7 +564,7 @@
       "market_rotation_score": 0.0,
       "current_price": 3376000,
       "price_basis": "realtime_quote",
-      "price_timestamp": "2026-06-13 19:59:06 KST",
+      "price_timestamp": "2026-06-14 20:14:46 KST",
       "history_last_date": "2026-06-12",
       "quote_source": "naver_item_summary",
       "quote_ok": true,
@@ -598,7 +598,7 @@
     "status": "skipped",
     "reason": "disabled",
     "message": "Set PERPLEXITY_VERIFY_ENABLED=true to enable external verification.",
-    "created_at_kst": "2026-06-13 19:59:09 KST"
+    "created_at_kst": "2026-06-14 20:14:49 KST"
   },
   "dca_backtest": {
     "ticker": "VOO",
