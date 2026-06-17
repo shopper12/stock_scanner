@@ -25,7 +25,20 @@
             android:name=".BotCardsActivity"
             android:exported="false"
             android:label="봇 추천" />
-        
+
+        <activity-alias
+            android:name=".BotCardsLauncher"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@android:drawable/sym_def_app_icon"
+            android:label="봇 추천"
+            android:targetActivity=".BotCardsActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <activity
             android:name=".ChartActivity"
             android:exported="true">
