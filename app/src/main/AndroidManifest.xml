@@ -22,6 +22,11 @@
         </provider>
 
         <activity
+            android:name=".BotCardsActivity"
+            android:exported="false"
+            android:label="봇 추천" />
+        
+        <activity
             android:name=".ChartActivity"
             android:exported="true">
             <intent-filter>
