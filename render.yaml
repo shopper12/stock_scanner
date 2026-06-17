@@ -14,3 +14,5 @@ services:
         value: Asia/Seoul
       - key: KR_BACKTEST_MAX_SYMBOLS
         value: "60"
+      - key: APP_CARDS_URL
+        value: https://telegram-news-bot-api.onrender.com/api/recommendations
