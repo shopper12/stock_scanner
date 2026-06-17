@@ -69,6 +69,7 @@ def _extract_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def write_cards_to_history(payload: dict[str, Any]) -> dict[str, Any]:
     saved = []
+    stable_at = payload.get('briefing_datetime_kst') or payload.get('generated_at') or payload.get('timestamp_kst')
     for row in _extract_items(payload):
         code = str(row.get('ticker') or row.get('code') or row.get('symbol') or '').strip()
         name = str(row.get('asset_name') or row.get('name') or row.get('asset') or code).strip()
@@ -87,8 +88,8 @@ def write_cards_to_history(payload: dict[str, Any]) -> dict[str, Any]:
             target2=_first_number(row.get('target2')),
             rationale=str(row.get('reason') or row.get('memo') or row.get('why_now') or ''),
             risk=str(row.get('risk') or row.get('invalidation') or ''),
-            recommended_at_kst=str(row.get('recommended_at_kst') or row.get('basis_timestamp_kst') or payload.get('briefing_datetime_kst') or '').strip() or None,
-            source_note=f"ChatGPT briefing {payload.get('briefing_datetime_kst') or payload.get('generated_at') or ''}".strip(),
+            recommended_at_kst=str(row.get('recommended_at_kst') or row.get('basis_timestamp_kst') or stable_at or '').strip() or None,
+            source_note=f"ChatGPT briefing {stable_at or ''}".strip(),
         )
         add_chat_recommendation(entry, notify=False)
         saved.append(entry)
