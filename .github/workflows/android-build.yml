@@ -2,6 +2,18 @@ name: Android Build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - 'tools/patch_android_release_metadata.py'
+      - '.github/workflows/android-build.yml'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'settings.gradle.kts'
+      - 'build.gradle.kts'
 
 permissions:
   contents: write
