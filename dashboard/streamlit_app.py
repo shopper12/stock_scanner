@@ -10,8 +10,10 @@ if str(ROOT_DIR) not in sys.path:
 
 import pandas as pd
 import streamlit as st
+from chat_picks import CHAT_HISTORY_PATH
 from database.db import latest_payload
 from scan_once import run_full_scan
+from sync_bridge import sync_cards_from_env
 
 
 def _order_cols(df: pd.DataFrame, preferred: list[str]) -> pd.DataFrame:
@@ -29,6 +31,19 @@ def _fmt_krw(value) -> str:
         return 'N/A'
 
 
+def _read_json(path: Path) -> dict:
+    if not path.exists():
+        return {'schema_version': 1, 'items': []}
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(data, dict):
+            return {'schema_version': 1, 'items': []}
+        data.setdefault('items', [])
+        return data
+    except Exception:
+        return {'schema_version': 1, 'items': []}
+
+
 def _latest_rule_report() -> dict | None:
     path = ROOT_DIR / 'reports' / 'kr_short_evolution_latest.json'
     if not path.exists():
@@ -41,6 +56,24 @@ def _latest_rule_report() -> dict | None:
 
 st.set_page_config(page_title='Stock Scanner', layout='wide')
 st.title('Stock Scanner - Mobile Dashboard')
+
+chat_sync = sync_cards_from_env()
+chat_data = _read_json(CHAT_HISTORY_PATH)
+chat_items = chat_data.get('items', [])
+if chat_sync.get('saved'):
+    st.success(f"ChatGPT 브리핑 추천 {chat_sync.get('saved')}개를 자동 저장했습니다.")
+
+if chat_items:
+    st.subheader('0. ChatGPT 브리핑 추천')
+    top_chat = chat_items[0]
+    c = st.columns(5)
+    c[0].metric('최근', f"{top_chat.get('name')}({top_chat.get('code')})")
+    c[1].metric('진입', _fmt_krw(top_chat.get('entry')))
+    c[2].metric('손절', _fmt_krw(top_chat.get('stop_loss')))
+    c[3].metric('1차 목표', _fmt_krw(top_chat.get('target1')))
+    c[4].metric('손익률', f"{top_chat.get('pnl_pct', 'N/A')}%")
+    chat_cols = ['recommended_at_kst', 'code', 'name', 'market', 'sector', 'strategy_type', 'price_at_recommendation', 'entry', 'stop_loss', 'target1', 'target2', 'pnl_pct', 'reason', 'risk', 'source_note']
+    st.dataframe(_order_cols(pd.DataFrame(chat_items[:20]), chat_cols), use_container_width=True)
 
 if st.button('수동 스캔 실행'):
     payload = run_full_scan(notify=False)
