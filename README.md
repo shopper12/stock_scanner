@@ -10,6 +10,7 @@
 - `FX_CONVERSION`: USD/KRW, 20/60/120일 평균, DXY, 미국 10년물, VIX를 이용해 선환전/분할환전/최소환전을 판단합니다.
 - `notifier.py`: 텔레그램으로 모바일 알림을 보냅니다.
 - `scheduler.py`: PC가 아니라 EC2 같은 서버에서 계속 실행하는 용도입니다.
+- `sync_bridge.py`: ChatGPT 브리핑 JSON을 앱 표시용 히스토리로 자동 저장합니다.
 
 ## 로컬 실행
 
@@ -32,6 +33,20 @@ python scan_once.py --notify
 ```powershell
 streamlit run dashboard/streamlit_app.py
 ```
+
+## ChatGPT 브리핑 추천 자동 표시
+
+대시보드는 실행 시 아래 환경변수 중 하나를 읽어서 `reports/chat_recommendation_history.json`과 `reports/recommendation_history.json`에 자동 저장합니다.
+
+```env
+APP_CARDS_URL=https://<telegram-render-url>/api/recommendations
+# 또는
+APP_CARDS_JSON={...브리핑 APP_RECOMMENDATIONS_JSON...}
+# 또는
+APP_CARDS_PATH=reports/app_recommendations.json
+```
+
+`dashboard/streamlit_app.py` 첫 화면과 `dashboard/pages/7_ChatGPT_Recommendations.py`에서 자동 저장된 항목을 확인합니다.
 
 ## 모바일로 쓰는 권장 방식
 
@@ -69,6 +84,9 @@ TELEGRAM_CHAT_ID=
 ACCOUNT_EQUITY_KRW=10000000
 RETIREMENT_TOTAL_KRW=10000000
 US_MONTHLY_BUDGET_KRW=1000000
+APP_CARDS_URL=
+APP_CARDS_JSON=
+APP_CARDS_PATH=
 ```
 
 처음에는 `USE_MOCK_DATA=1`로 실행 검증 후, 실제 데이터 연동 시 `0`으로 바꿉니다.
