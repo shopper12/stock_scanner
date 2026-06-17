@@ -12,6 +12,7 @@ def main() -> None:
 
     _patch_gradle_version(version_code, version_name)
     _patch_manifest_permissions()
+    _patch_main_activity_bot_button()
 
     print(f'Patched Android release metadata: versionCode={version_code}, versionName={version_name}')
 
@@ -36,6 +37,24 @@ def _patch_manifest_permissions() -> None:
         else:
             text = text.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">', '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />')
     path.write_text(text, encoding='utf-8')
+
+
+def _patch_main_activity_bot_button() -> None:
+    path = Path('app/src/main/java/com/stockscanner/MainActivity.kt')
+    if not path.exists():
+        return
+    text = path.read_text(encoding='utf-8')
+    if 'BotCardsActivity::class.java' in text:
+        return
+
+    anchor = '                    Button(onClick = { openUpdatePage() }) { Text("업데이트/APK") }'
+    replacement = (
+        anchor
+        + '\n                    Button(onClick = { context.startActivity(Intent(context, BotCardsActivity::class.java)) }) { Text("봇 추천") }'
+    )
+    if anchor not in text:
+        raise RuntimeError('MainActivity update button anchor not found; refusing to patch UI')
+    path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8')
 
 
 if __name__ == '__main__':
