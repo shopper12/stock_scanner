@@ -20,8 +20,16 @@ def main() -> None:
     except Exception as exc:
         print(f'[api_server_start] enhanced stock lookup skipped: {exc}')
 
-    from api_server import main as run_api_server
-    run_api_server()
+    import api_server
+
+    try:
+        from api_chat_cards_patch import apply as apply_chat_cards_patch
+        apply_chat_cards_patch(api_server)
+        print('[api_server_start] chat cards API patch enabled')
+    except Exception as exc:
+        print(f'[api_server_start] chat cards API patch skipped: {exc}')
+
+    api_server.main()
 
 
 if __name__ == '__main__':
