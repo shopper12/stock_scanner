@@ -12,6 +12,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from chat_picks import CHAT_HISTORY_PATH, COMMON_HISTORY_PATH, seed_current_conversation_picks
+from sync_bridge import sync_cards_from_env
 
 
 PREFERRED_COLS = [
@@ -71,7 +72,11 @@ def _fmt_krw(value) -> str:
 
 st.set_page_config(page_title='ChatGPT 추천기록', layout='wide')
 st.title('ChatGPT 대화 추천기록')
-st.caption('이 대화에서 생성한 추천 종목을 scanner 추천 히스토리와 별도 chat 히스토리에 저장해서 확인하는 화면입니다.')
+st.caption('브리핑 JSON을 환경변수 APP_CARDS_JSON/APP_CARDS_PATH/APP_CARDS_URL 또는 CHATGPT_RECOMMENDATIONS_* 로 연결하면 페이지 진입 시 자동 저장됩니다.')
+
+sync_result = sync_cards_from_env()
+if sync_result.get('saved'):
+    st.success(f"외부 브리핑 추천 {sync_result.get('saved')}개를 자동 저장했습니다.")
 
 cols = st.columns(3)
 if cols[0].button('현재 대화 추천 seed 저장'):
@@ -88,7 +93,7 @@ items = chat_data.get('items', [])
 
 st.subheader('1. ChatGPT 대화 추천')
 if not items:
-    st.info('아직 저장된 ChatGPT 대화 추천이 없습니다. 위 버튼을 누르거나 `python chat_picks.py add ... --notify`를 실행하세요.')
+    st.info('아직 저장된 ChatGPT 대화 추천이 없습니다. 브리핑 JSON 환경변수/URL을 연결하거나 `python chat_picks.py add ... --notify`를 실행하세요.')
 else:
     df = _order_cols(pd.DataFrame(items))
     top = items[0]
@@ -107,7 +112,17 @@ if common_items:
     common_df = _order_cols(pd.DataFrame(common_items))
     st.dataframe(common_df.head(100), use_container_width=True)
 
-st.subheader('3. CLI 입력 예시')
+st.subheader('3. 자동 연결 설정')
+st.code(
+    "APP_CARDS_URL=https://<telegram-render-url>/api/recommendations\n"
+    "# 또는\n"
+    "APP_CARDS_JSON={...브리핑 APP_RECOMMENDATIONS_JSON...}\n"
+    "# 또는\n"
+    "APP_CARDS_PATH=reports/app_recommendations.json",
+    language='bash',
+)
+
+st.subheader('4. CLI 입력 예시')
 st.code(
     "python chat_picks.py add --code 000660 --name SK하이닉스 --sector 반도체/HBM "
     "--strategy-type chat_close_bet --current-price 2071500 --entry-low 2055000 "
