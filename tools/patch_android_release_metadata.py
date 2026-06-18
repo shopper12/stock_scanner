@@ -12,6 +12,7 @@ def main() -> None:
 
     _patch_gradle_version(version_code, version_name)
     _patch_manifest_permissions()
+    _patch_manifest_application_class()
     _patch_main_activity_bot_button()
 
     print(f'Patched Android release metadata: versionCode={version_code}, versionName={version_name}')
@@ -37,6 +38,20 @@ def _patch_manifest_permissions() -> None:
         else:
             text = text.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">', '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />')
     path.write_text(text, encoding='utf-8')
+
+
+def _patch_manifest_application_class() -> None:
+    path = Path('app/src/main/AndroidManifest.xml')
+    if not path.exists():
+        return
+    text = path.read_text(encoding='utf-8')
+    if 'android:name=".StockScannerApplication"' in text:
+        return
+    anchor = '    <application\n'
+    replacement = '    <application\n        android:name=".StockScannerApplication"\n'
+    if anchor not in text:
+        raise RuntimeError('Manifest application anchor not found; refusing to patch application class')
+    path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8')
 
 
 def _patch_main_activity_bot_button() -> None:
