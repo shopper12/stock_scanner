@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:name=".StockScannerApplication"
         android:allowBackup="false"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="Stock Scanner"
@@ -23,8 +24,13 @@
 
         <activity
             android:name=".BotCardsActivity"
-            android:exported="false"
-            android:label="봇 추천" />
+            android:exported="true"
+            android:label="봇 추천">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".ChartActivity"
