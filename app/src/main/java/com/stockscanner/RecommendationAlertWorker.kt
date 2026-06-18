@@ -1,6 +1,7 @@
 package com.stockscanner
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -126,6 +127,7 @@ class RecommendationAlertWorker(
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun showRecommendationNotification(payload: RecommendationAlertPayload) {
         ensureNotificationChannel()
         val intent = Intent(applicationContext, BotCardsActivity::class.java).apply {
