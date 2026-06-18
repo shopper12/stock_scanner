@@ -68,12 +68,7 @@ class RecommendationAlertWorker(
             val prefs = applicationContext.getSharedPreferences(ALERT_PREFS, Context.MODE_PRIVATE)
             val previous = prefs.getString(KEY_LAST_SIGNATURE, "").orEmpty()
 
-            if (previous.isBlank()) {
-                prefs.edit().putString(KEY_LAST_SIGNATURE, payload.signature).apply()
-                return@withContext Result.success()
-            }
             if (previous == payload.signature) return@withContext Result.success()
-
             if (!canPostNotifications()) return@withContext Result.success()
 
             showRecommendationNotification(payload)
