@@ -7,9 +7,9 @@ import schedule
 from scan_once import run_full_scan
 
 
-def job(name: str, notify: bool = True) -> None:
+def job(name: str, notify: bool = True, notify_only_if_global_signal: bool = False) -> None:
     print(f'[scheduler] start {name}')
-    run_full_scan(notify=notify)
+    run_full_scan(notify=notify, notify_only_if_global_signal=notify_only_if_global_signal)
     print(f'[scheduler] done {name}')
 
 
@@ -22,9 +22,9 @@ def monitor_job() -> None:
         closed = update_all_open_recommendations()
         for rec in closed:
             ret = float(rec.get('realized_return_pct') or 0.0)
-            emoji = '🟢' if ret > 0 else '🔴'
+            status = 'WIN' if ret > 0 else 'LOSS'
             send_telegram_message(
-                f"{emoji} [추천 종료] {rec.get('name', '')}({rec.get('code', '')})\n"
+                f"[추천 종료/{status}] {rec.get('name', '')}({rec.get('code', '')})\n"
                 f"수익률: {ret:+.2f}% | {rec.get('exit_reason', '')}\n"
                 f"MFE {float(rec.get('mfe_pct') or 0.0):+.1f}% / MAE {float(rec.get('mae_pct') or 0.0):+.1f}%"
             )
@@ -45,7 +45,7 @@ def eod_summary_job() -> None:
         stops = exit_breakdown.get('stop', 0)
         targets = int(exit_breakdown.get('target1', 0) or 0) + int(exit_breakdown.get('target2', 0) or 0)
         send_telegram_message(
-            f"📊 [일일 성과]\n"
+            f"[일일 성과]\n"
             f"활성 {perf.get('open_count', 0)}건 | 종료 {perf.get('closed_count', 0)}건\n"
             f"평균수익률 {float(perf.get('avg_realized_return_pct') or 0.0):+.2f}% | "
             f"승률 {float(perf.get('win_rate') or 0.0) * 100:.1f}%\n"
@@ -67,11 +67,11 @@ def weekly_evolve_job() -> None:
         written = bool(result.get('rules_written', False))
         improvement = float(result.get('improvement') or 0.0)
         send_telegram_message(
-            f"🔬 [주간 룰 진화]\n"
+            f"[주간 룰 진화]\n"
             f"놓친 급등 {audit.get('total_missed', 0)}건 "
             f"(평균 {float(audit.get('avg_score_gap') or 0.0):.1f}점 미달)\n"
             f"권고: {audit.get('recommendation', '')}\n"
-            f"룰 업데이트: {'✅' if written else '❌'} | "
+            f"룰 업데이트: {'YES' if written else 'NO'} | "
             f"Fitness {improvement:+.4f}"
         )
     except Exception as exc:
@@ -79,7 +79,7 @@ def weekly_evolve_job() -> None:
 
 
 def register_jobs() -> None:
-    schedule.every().hour.at(':05').do(job, 'Global US/KR/commodity condition watch', True)
+    schedule.every().hour.at(':05').do(job, 'Global US/KR/commodity condition watch', True, True)
     schedule.every().day.at('07:30').do(job, 'US ETF / FX morning', True)
     schedule.every().day.at('08:50').do(monitor_job)
     schedule.every().day.at('09:05').do(job, 'KR open scan', True)
