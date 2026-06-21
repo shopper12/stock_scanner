@@ -32,4 +32,4 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run global condition scan
-        run: python scan_once.py --notify --no-report
+        run: python scan_once.py --notify --notify-only-if-global-signal --no-report
