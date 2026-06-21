@@ -21,7 +21,7 @@ LATEST_REPORT_PATH = REPORT_DIR / 'latest.json'
 HISTORY_REPORT_PATH = REPORT_DIR / 'recommendation_history.json'
 
 
-def run_full_scan(notify: bool = False, write_report: bool = True) -> dict:
+def run_full_scan(notify: bool = False, write_report: bool = True, notify_only_if_global_signal: bool = False) -> dict:
     fx = analyze_fx_conversion()
     us = scan_us_long_etfs(fx_signal=fx['action'])
     retirement, risk_report = scan_kr_retirement_etfs()
@@ -49,7 +49,8 @@ def run_full_scan(notify: bool = False, write_report: bool = True) -> dict:
     if write_report:
         write_latest_report(payload)
         update_recommendation_history(created_at, kr_short_rows, perplexity_verification)
-    if notify:
+    should_notify = notify and (not notify_only_if_global_signal or bool(global_signal_watch))
+    if should_notify:
         _send_scan_notification(payload)
     return payload
 
@@ -220,9 +221,14 @@ def _mobile_summary(payload: dict) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description='Run stock scanner once.')
     parser.add_argument('--notify', action='store_true', help='Send Telegram summary when configured.')
+    parser.add_argument('--notify-only-if-global-signal', action='store_true', help='Suppress notification when global_signal_watch is empty.')
     parser.add_argument('--no-report', action='store_true', help='Do not write reports/latest.json.')
     args = parser.parse_args()
-    payload = run_full_scan(notify=args.notify, write_report=not args.no_report)
+    payload = run_full_scan(
+        notify=args.notify,
+        write_report=not args.no_report,
+        notify_only_if_global_signal=args.notify_only_if_global_signal,
+    )
     print(_mobile_summary(payload))
     print(f"latest_report={LATEST_REPORT_PATH}")
     print(f"history_report={HISTORY_REPORT_PATH}")
