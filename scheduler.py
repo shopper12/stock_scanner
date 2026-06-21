@@ -79,6 +79,7 @@ def weekly_evolve_job() -> None:
 
 
 def register_jobs() -> None:
+    schedule.every().hour.at(':05').do(job, 'Global US/KR/commodity condition watch', True)
     schedule.every().day.at('07:30').do(job, 'US ETF / FX morning', True)
     schedule.every().day.at('08:50').do(monitor_job)
     schedule.every().day.at('09:05').do(job, 'KR open scan', True)
