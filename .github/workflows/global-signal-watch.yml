@@ -1,0 +1,35 @@
+name: Global Signal Watch
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+      timezone: 'Asia/Seoul'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      USE_MOCK_DATA: '0'
+      ALLOW_DATA_FALLBACK: '1'
+      TIMEZONE: 'Asia/Seoul'
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+      KR_TOP_N_RESULTS: '5'
+      KR_PREFILTER_RESULT_BUFFER: '100'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run global condition scan
+        run: python scan_once.py --notify --no-report
