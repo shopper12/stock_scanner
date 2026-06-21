@@ -30,22 +30,98 @@ def _read_chat_history(api_module: Any, auto_sync: bool = True) -> tuple[int, di
     return status, data
 
 
+def _global_cards_from_latest(api_module: Any) -> tuple[str | None, list[dict]]:
+    status, data = api_module._read_json(api_module.LATEST_PATH)
+    if status != 200 or not isinstance(data, dict):
+        return None, []
+    created_at = data.get('created_at_kst')
+    rows = data.get('global_signal_watch') or []
+    if not isinstance(rows, list):
+        return created_at, []
+    out = []
+    for row in rows[:20]:
+        if not isinstance(row, dict):
+            continue
+        ticker = row.get('ticker') or row.get('code') or row.get('symbol')
+        name = row.get('name') or ticker
+        risk_parts = []
+        if row.get('risk_pct') not in (None, ''):
+            risk_parts.append(f"risk_pct={row.get('risk_pct')}%")
+        if row.get('rsi14') not in (None, ''):
+            risk_parts.append(f"RSI={row.get('rsi14')}")
+        if row.get('volume_ratio_20d') not in (None, ''):
+            risk_parts.append(f"volume={row.get('volume_ratio_20d')}x")
+        if row.get('failure_condition'):
+            risk_parts.append(str(row.get('failure_condition')))
+        out.append({
+            'source': 'global_signal_watch',
+            'source_note': 'Global US/KR/commodity condition watch',
+            'source_id': f"global:{ticker}:{row.get('timestamp_kst') or created_at or ''}",
+            'code': ticker,
+            'ticker': ticker,
+            'name': name,
+            'asset_name': name,
+            'market': row.get('market') or row.get('asset_class') or 'GLOBAL',
+            'sector': row.get('asset_class') or row.get('market') or 'GLOBAL',
+            'direction': row.get('direction') or row.get('action') or 'LONG',
+            'strategy_type': row.get('strategy_type') or 'global_signal_watch',
+            'score': row.get('score'),
+            'basis_price': row.get('current_price'),
+            'current_price': row.get('current_price'),
+            'basis_timestamp_kst': row.get('timestamp_kst') or created_at,
+            'recommended_at_kst': row.get('timestamp_kst') or created_at,
+            'entry': row.get('entry'),
+            'stop_loss': row.get('stop_loss') or row.get('stop'),
+            'target1': row.get('target1'),
+            'target2': row.get('target2'),
+            'reason': row.get('reason') or row.get('rationale') or '',
+            'rationale': row.get('reason') or row.get('rationale') or '',
+            'risk': ' / '.join(risk_parts),
+            'failure_condition': row.get('failure_condition') or '',
+        })
+    return created_at, out
+
+
+def _read_app_cards(api_module: Any, auto_sync: bool = True) -> tuple[int, dict]:
+    chat_status, chat_data = _read_chat_history(api_module, auto_sync=auto_sync)
+    chat_rows = chat_data.get('items') if chat_status == 200 and isinstance(chat_data, dict) else []
+    if not isinstance(chat_rows, list):
+        chat_rows = []
+    latest_updated, global_rows = _global_cards_from_latest(api_module)
+    updated = latest_updated or (chat_data.get('updated_at_kst') if isinstance(chat_data, dict) else None)
+    return 200, {
+        'ok': True,
+        'updated_at_kst': updated,
+        'global_signal_count': len(global_rows),
+        'chatgpt_recommendation_count': len(chat_rows),
+        'items': [*global_rows, *chat_rows][:40],
+        'recommendations': [*global_rows, *chat_rows][:40],
+        'global_signal_watch': global_rows,
+        'chatgpt_recommendations': chat_rows[:20],
+        'auto_sync': chat_data.get('auto_sync') if isinstance(chat_data, dict) else None,
+    }
+
+
 def _attach_chat_history(api_module: Any, payload: dict) -> dict:
     status, data = _read_chat_history(api_module, auto_sync=True)
     rows = data.get('items') if status == 200 else []
     count = len(rows) if isinstance(rows, list) else 0
+    latest_updated, global_rows = _global_cards_from_latest(api_module)
     payload = dict(payload)
     payload['chatgpt_recommendations'] = rows[:20] if isinstance(rows, list) else []
     payload['chatgpt_recommendation_count'] = count
     payload['chatgpt_recommendations_updated_at_kst'] = data.get('updated_at_kst') if isinstance(data, dict) else None
+    payload['global_signal_watch_cards'] = global_rows
+    payload['global_signal_count'] = len(global_rows)
+    payload['global_signal_updated_at_kst'] = latest_updated
     payload['chatgpt_recommendations_endpoint'] = '/api/chatgpt-picks'
     payload['chatgpt_recommendations_page'] = '/recommendations'
     payload['chatgpt_recommendations_aliases'] = ['/api/recommendations', '/api/chatgpt/recommendations']
     payload['chatgpt_recommendations_alert'] = {
-        'active': count > 0,
-        'title': 'ChatGPT 추천종목',
-        'message': f'새 브리핑 추천 {count}개' if count else '새 브리핑 추천 없음',
-        'updated_at_kst': payload.get('chatgpt_recommendations_updated_at_kst'),
+        'active': count > 0 or len(global_rows) > 0,
+        'title': '앱 추천종목',
+        'message': f'글로벌 조건 {len(global_rows)}개 / 브리핑 추천 {count}개',
+        'updated_at_kst': latest_updated or payload.get('chatgpt_recommendations_updated_at_kst'),
         'page': '/recommendations',
     }
     return payload
@@ -83,7 +159,7 @@ def _recommendations_html(data: dict) -> str:
     rows = data.get('items') or []
     updated = _fmt(data.get('updated_at_kst') or '-')
     cards = []
-    for row in rows[:20]:
+    for row in rows[:40]:
         name = _fmt(row.get('name') or row.get('asset_name') or '-')
         code = _fmt(_display_code(row.get('code') or row.get('ticker')))
         strategy = _fmt(row.get('strategy_type') or row.get('direction') or '-')
@@ -94,9 +170,10 @@ def _recommendations_html(data: dict) -> str:
         target2 = _fmt(row.get('target2'))
         reason = _fmt(row.get('reason') or row.get('rationale') or '')
         risk = _fmt(row.get('risk') or row.get('failure_condition') or '')
+        source = _fmt(row.get('source') or row.get('source_note') or '')
         cards.append(f'''
         <article class="card">
-          <div class="badge">{market} · {strategy}</div>
+          <div class="badge">{market} · {strategy} · {source}</div>
           <h2>{name} <span>{code}</span></h2>
           <div class="grid">
             <div><b>진입</b><p>{entry}</p></div>
@@ -108,13 +185,13 @@ def _recommendations_html(data: dict) -> str:
           <p class="risk"><b>리스크</b><br>{risk}</p>
         </article>
         ''')
-    empty = '<section class="empty">저장된 ChatGPT 추천종목이 없습니다.</section>' if not cards else ''
+    empty = '<section class="empty">표시할 앱 추천종목이 없습니다.</section>' if not cards else ''
     return f'''<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ChatGPT 추천종목</title>
+  <title>앱 추천종목</title>
   <style>
     body {{ margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#0f1115; color:#f3f4f6; }}
     header {{ padding:20px 16px 8px; position:sticky; top:0; background:#0f1115; border-bottom:1px solid #242833; }}
@@ -136,8 +213,8 @@ def _recommendations_html(data: dict) -> str:
 </head>
 <body>
   <header>
-    <h1>ChatGPT 추천종목</h1>
-    <div class="meta">업데이트: {updated} · <a href="/api/chatgpt-picks">JSON 보기</a></div>
+    <h1>앱 추천종목</h1>
+    <div class="meta">업데이트: {updated} · <a href="/api/recommendations">JSON 보기</a></div>
   </header>
   <main>{empty}{''.join(cards)}</main>
 </body>
@@ -182,24 +259,30 @@ def apply(api_module: Any) -> Any:
         parsed = urlparse(self.path)
         path = parsed.path.rstrip('/') or '/'
         if path in {'/recommendations', '/chatgpt-recommendations', '/app-recommendations'}:
-            status, data = _read_chat_history(api_module, auto_sync=True)
+            status, data = _read_app_cards(api_module, auto_sync=True)
             _send_html(self, status, _recommendations_html(data if isinstance(data, dict) else {}))
             return
-        if path in {'/api/recommendations', '/api/chatgpt/recommendations', '/api/chatgpt-picks'}:
+        if path in {'/api/recommendations', '/api/chatgpt/recommendations'}:
+            status, data = _read_app_cards(api_module, auto_sync=True)
+            self._send_json(status, data)
+            return
+        if path == '/api/chatgpt-picks':
             status, data = _read_chat_history(api_module, auto_sync=True)
             self._send_json(status, data)
             return
         if path in {'/', '/health'}:
             status, data = api_module._latest_payload(auto_bootstrap=False)
             chat_count = 0
+            global_count = 0
             updated = None
             if status == 200:
                 chat_count = int(data.get('chatgpt_recommendation_count') or 0)
-                updated = data.get('chatgpt_recommendations_updated_at_kst')
+                global_count = int(data.get('global_signal_count') or 0)
+                updated = data.get('global_signal_updated_at_kst') or data.get('chatgpt_recommendations_updated_at_kst')
             self._send_json(200, {
                 'ok': True,
                 'service': 'stock_scanner_api',
-                'version': 'chat-cards-api-v2',
+                'version': 'app-cards-global-v1',
                 'endpoints': [
                     '/recommendations',
                     '/api/latest',
@@ -213,10 +296,11 @@ def apply(api_module: Any) -> Any:
                     '/api/kr-stock-chart',
                     '/api/kakao-skill',
                 ],
+                'global_signal_count': global_count,
                 'chatgpt_recommendation_count': chat_count,
-                'chatgpt_recommendations_updated_at_kst': updated,
-                'chatgpt_recommendations_endpoint': '/api/chatgpt-picks',
-                'chatgpt_recommendations_page': '/recommendations',
+                'recommendations_updated_at_kst': updated,
+                'recommendations_endpoint': '/api/recommendations',
+                'recommendations_page': '/recommendations',
                 'write_enabled': api_module._write_enabled(),
                 'latest_report_exists': api_module.LATEST_PATH.exists(),
                 'recommendation_history_exists': api_module.RECOMMENDATION_HISTORY_PATH.exists(),
