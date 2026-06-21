@@ -10,6 +10,7 @@ from backtest.dca import simple_dca_backtest
 from config import settings
 from database.db import save_payload
 from strategies.fx_conversion import analyze_fx_conversion
+from strategies.global_signal_watch import scan_global_signal_watch
 from strategies.kr_retirement_etf import scan_kr_retirement_etfs
 from strategies.kr_short_stock_pure_runtime import scan_kr_short_stocks
 from strategies.us_long_etf import scan_us_long_etfs
@@ -28,13 +29,15 @@ def run_full_scan(notify: bool = False, write_report: bool = True) -> dict:
     dca = simple_dca_backtest('VOO', settings.us_monthly_budget_krw, months=24)
     created_at = datetime.now(ZoneInfo(settings.timezone)).strftime('%Y-%m-%d %H:%M:%S %Z')
     kr_short_rows = kr_short.to_dict('records')
+    global_signal_watch = scan_global_signal_watch(kr_short_rows=kr_short_rows)
     perplexity_verification = _verify_with_perplexity(kr_short_rows, created_at)
     payload = {
-        'schema_version': 1,
+        'schema_version': 2,
         'created_at_kst': created_at,
         'mode': 'mock' if settings.use_mock_data else 'live',
-        'data_quality': _data_quality(kr_short_rows),
+        'data_quality': _data_quality(kr_short_rows, global_signal_watch),
         'fx': fx,
+        'global_signal_watch': global_signal_watch,
         'us_long_etfs': us.to_dict('records'),
         'kr_retirement_etfs': retirement.to_dict('records'),
         'retirement_risk_report': risk_report,
@@ -183,7 +186,7 @@ def _history_key(item: dict) -> str:
     return f'{scan_date}:{str(code).zfill(6)}'
 
 
-def _data_quality(kr_short_rows: list[dict]) -> dict:
+def _data_quality(kr_short_rows: list[dict], global_signal_watch: list[dict] | None = None) -> dict:
     total = len(kr_short_rows)
     quote_ok = sum(1 for row in kr_short_rows if row.get('quote_ok'))
     realtime = sum(1 for row in kr_short_rows if row.get('price_basis') == 'realtime_quote')
@@ -193,16 +196,21 @@ def _data_quality(kr_short_rows: list[dict]) -> dict:
         'kr_short_quote_ok_rate': round(quote_ok / total, 4) if total else 0.0,
         'kr_short_realtime_price_count': realtime,
         'kr_short_daily_close_fallback_count': total - realtime,
+        'global_signal_count': len(global_signal_watch or []),
     }
 
 
 def _mobile_summary(payload: dict) -> str:
     rows = payload.get('kr_short_stocks', [])
+    global_rows = payload.get('global_signal_watch', [])
     top = rows[0] if rows else {}
+    global_top = global_rows[0] if global_rows else {}
     verify = payload.get('perplexity_verification') or {}
     return '\n'.join([
         f"created_at={payload.get('created_at_kst')}",
         f"mode={payload.get('mode')}",
+        f"global_signal_count={len(global_rows)}",
+        f"global_top={global_top.get('name', '-') }({global_top.get('ticker', '-')}) score={global_top.get('score', '-')}",
         f"kr_short_count={len(rows)}",
         f"top={top.get('name', '-') }({top.get('code', '-')}) score={top.get('score', '-')}",
         f"perplexity={verify.get('status', '-')}/{verify.get('reason', '-')}",
