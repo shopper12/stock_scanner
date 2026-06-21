@@ -44,6 +44,7 @@ def send_telegram_message(text: str) -> bool:
 
 def build_mobile_summary(payload: dict) -> str:
     fx = payload['fx']
+    global_signals = payload.get('global_signal_watch', [])[:5]
     us_top = payload['us_long_etfs'][:3]
     kr_short = payload['kr_short_stocks'][:3]
     retirement = payload['retirement_risk_report']
@@ -54,6 +55,29 @@ def build_mobile_summary(payload: dict) -> str:
     lines.append(f"기준시각: {html.escape(str(payload['created_at_kst']))} / 데이터: {html.escape(str(mode))}")
     if mode == 'mock':
         lines.append('⚠️ mock 모드: 실전 매매 판단 금지')
+    lines.append('')
+
+    lines.append('🌐 <b>글로벌 조건검색: 미국/한국/원자재</b>')
+    if global_signals:
+        for x in global_signals:
+            ticker = html.escape(str(x.get('ticker', '')))
+            name = html.escape(str(x.get('name', '')))
+            market = html.escape(str(x.get('market', '')))
+            asset_class = html.escape(str(x.get('asset_class', '')))
+            setup = html.escape(str(x.get('strategy_type', '')))
+            reason = html.escape(str(x.get('reason', '')))
+            failure = html.escape(str(x.get('failure_condition', '')))
+            current = _fmt_price(x.get('current_price'))
+            entry = _fmt_price(x.get('entry'))
+            stop = _fmt_price(x.get('stop_loss'))
+            target1 = _fmt_price(x.get('target1'))
+            target2 = _fmt_price(x.get('target2'))
+            lines.append(f"<b>{name}({ticker})</b> [{market}/{asset_class}/{setup}] 점수 {x.get('score')}")
+            lines.append(f"현재 {current} / 진입 {entry} / 손절 {stop} / 목표 {target1}→{target2}")
+            lines.append(f"근거: {reason}")
+            lines.append(f"무효화: {failure}")
+    else:
+        lines.append('조건 통과 없음: 추격매수 금지, 다음 스캔 대기')
     lines.append('')
 
     lines.append('💵 <b>환율</b>')
@@ -106,5 +130,17 @@ def _fmt_int(value) -> str:
         if value is None:
             return 'N/A'
         return f"{int(round(float(value))):,}"
+    except Exception:
+        return str(value)
+
+
+def _fmt_price(value) -> str:
+    try:
+        if value is None:
+            return 'N/A'
+        numeric = float(value)
+        if abs(numeric) >= 1000:
+            return f"{numeric:,.0f}"
+        return f"{numeric:,.2f}"
     except Exception:
         return str(value)
