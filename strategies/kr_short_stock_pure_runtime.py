@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 import pandas as pd
 
@@ -10,6 +12,7 @@ from strategies import kr_short_stock as base
 
 MIN_TRADE_VALUE_KRW = 5_000_000_000
 RELAXED_MIN_TRADE_VALUE_KRW = 500_000_000
+HISTORY_PATH = Path(__file__).resolve().parents[1] / 'reports' / 'recommendation_history.json'
 
 _ORIGINAL_SCAN = base.scan_kr_short_stocks
 _ORIGINAL_RULES_LOADER = base.load_kr_short_rules
@@ -88,9 +91,9 @@ def _drop_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
     valid_value_ratio = value > 0.0
     low_volume_watch = (setup == 'watch') & (volume < 0.80)
     low_value_and_volume_watch = (setup == 'watch') & (value < 0.80) & (volume < 0.80)
-    weak_backtested_setup = setup.isin(['breakout', 'trend_continuation'])  # [FIX-2] PF < 1.0 setup 제거
-    non_theme_excess_risk = (setup != 'theme_repricing_breakout') & (risk > original_max_risk)  # [FIX-3] 16% 완화는 theme에만 적용
-    watch_without_pullback = (setup == 'watch') & (drawdown52w > -3.0)  # [FIX-4] 눌림 없는 watch 제거
+    weak_backtested_setup = setup.isin(['breakout', 'trend_continuation'])
+    non_theme_excess_risk = (setup != 'theme_repricing_breakout') & (risk > original_max_risk)
+    watch_without_pullback = (setup == 'watch') & (drawdown52w > -3.0)
     final_mask = (
         liquid
         & valid_value_ratio
@@ -108,7 +111,7 @@ def _drop_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
     filtered['sector_rank'] = 99
     filtered['sector_strength_score'] = 0.0
     filtered['market_rotation_score'] = 0.0
-    return filtered.sort_values(['score', 'trade_value_krw', 'change_pct_today'], ascending=[False, False, False]).reset_index(drop=True).head(_top_n())
+    return _select_diverse_recent_aware(filtered)
 
 
 def _print_runtime_filter_stats(out: pd.DataFrame, liquid: pd.Series, valid_value_ratio: pd.Series, low_volume_watch: pd.Series, low_value_and_volume_watch: pd.Series, weak_backtested_setup: pd.Series, non_theme_excess_risk: pd.Series, watch_without_pullback: pd.Series, final_mask: pd.Series) -> None:
@@ -128,6 +131,69 @@ def _print_runtime_filter_stats(out: pd.DataFrame, liquid: pd.Series, valid_valu
     print(f'[runtime_filter] top_before_filter={top}')
 
 
+def _select_diverse_recent_aware(df: pd.DataFrame) -> pd.DataFrame:
+    top_n = _top_n()
+    ranked = df.copy()
+    recent_counts = _recent_recommendation_counts()
+    ranked['repeat_count_30d'] = ranked['code'].astype(str).str.zfill(6).map(recent_counts).fillna(0).astype(int)
+    ranked['diversity_score'] = (
+        pd.to_numeric(ranked.get('score'), errors='coerce').fillna(0.0)
+        + (pd.to_numeric(ranked.get('trade_value_ratio_20d'), errors='coerce').fillna(0.0).clip(0, 3) * 1.5)
+        + (pd.to_numeric(ranked.get('volume_ratio_20d'), errors='coerce').fillna(0.0).clip(0, 3) * 1.0)
+        + (pd.to_numeric(ranked.get('change_pct_today'), errors='coerce').fillna(0.0).clip(-5, 8) * 0.4)
+        - ranked['repeat_count_30d'] * _repeat_penalty()
+    )
+    ranked = ranked.sort_values(['diversity_score', 'score', 'trade_value_krw'], ascending=[False, False, False])
+    selected = []
+    selected_codes: set[str] = set()
+    sector_counts: dict[str, int] = {}
+    cooldown = _repeat_cooldown_count()
+    max_per_sector = _max_per_sector()
+    for _, row in ranked.iterrows():
+        code = str(row.get('code', '')).zfill(6)
+        sector = str(row.get('sector') or '기타')
+        if code in selected_codes:
+            continue
+        if int(row.get('repeat_count_30d') or 0) >= cooldown and len(ranked) > top_n:
+            continue
+        if sector_counts.get(sector, 0) >= max_per_sector:
+            continue
+        selected.append(row)
+        selected_codes.add(code)
+        sector_counts[sector] = sector_counts.get(sector, 0) + 1
+        if len(selected) >= top_n:
+            break
+    if len(selected) < top_n:
+        for _, row in ranked.iterrows():
+            code = str(row.get('code', '')).zfill(6)
+            if code in selected_codes:
+                continue
+            selected.append(row)
+            selected_codes.add(code)
+            if len(selected) >= top_n:
+                break
+    result = pd.DataFrame(selected).reset_index(drop=True)
+    print(f'[runtime_filter] selected_diverse={result[["code", "name", "sector", "score", "repeat_count_30d", "diversity_score"]].to_dict("records") if not result.empty else []}')
+    return result.head(top_n)
+
+
+def _recent_recommendation_counts() -> dict[str, int]:
+    if not HISTORY_PATH.exists():
+        return {}
+    try:
+        data = json.loads(HISTORY_PATH.read_text(encoding='utf-8'))
+        rows = data.get('items') or []
+        counts: dict[str, int] = {}
+        for row in rows[:80]:
+            code = str(row.get('code') or '').zfill(6)
+            if code and code != '000000':
+                counts[code] = counts.get(code, 0) + 1
+        return counts
+    except Exception as exc:
+        print(f'[runtime_filter] recent history read failed: {exc}')
+        return {}
+
+
 def _relaxed_fallback(out: pd.DataFrame, trade_value: pd.Series, setup: pd.Series, risk: pd.Series, original_max_risk: float) -> pd.DataFrame:
     relaxed_mask = (
         (trade_value >= RELAXED_MIN_TRADE_VALUE_KRW)
@@ -145,8 +211,8 @@ def _relaxed_fallback(out: pd.DataFrame, trade_value: pd.Series, setup: pd.Serie
 
 def _load_runtime_rules():
     rules = _ORIGINAL_RULES_LOADER()
-    threshold = _runtime_score_threshold(rules)  # [FIX-1] 기본 55점 기준 유지
-    max_risk = max(float(getattr(rules, 'max_risk_pct', 12.0) or 12.0), 16.0)  # [FIX-3] theme_repricing_breakout 후보 복구용 risk buffer
+    threshold = _runtime_score_threshold(rules)
+    max_risk = max(float(getattr(rules, 'max_risk_pct', 12.0) or 12.0), 16.0)
     try:
         return rules.__class__(**{**rules.__dict__, 'score_threshold': threshold, 'max_risk_pct': max_risk})
     except Exception:
@@ -165,9 +231,30 @@ def _runtime_score_threshold(rules) -> float:
 
 def _top_n() -> int:
     try:
-        return max(1, int(float(os.getenv('KR_TOP_N_RESULTS', '5'))))
+        return max(1, int(float(os.getenv('KR_TOP_N_RESULTS', '7'))))
     except ValueError:
-        return 5
+        return 7
+
+
+def _max_per_sector() -> int:
+    try:
+        return max(1, int(float(os.getenv('KR_MAX_PER_SECTOR', '2'))))
+    except ValueError:
+        return 2
+
+
+def _repeat_cooldown_count() -> int:
+    try:
+        return max(1, int(float(os.getenv('KR_REPEAT_COOLDOWN_COUNT', '2'))))
+    except ValueError:
+        return 2
+
+
+def _repeat_penalty() -> float:
+    try:
+        return max(0.0, float(os.getenv('KR_REPEAT_PENALTY', '8.0')))
+    except ValueError:
+        return 8.0
 
 
 def _pre_filter_buffer_size() -> int:
@@ -177,7 +264,7 @@ def _pre_filter_buffer_size() -> int:
             return max(_top_n(), int(float(raw)))
         except ValueError:
             pass
-    return max(80, _top_n() * 20)
+    return max(120, _top_n() * 25)
 
 
 def _select_pre_filter_buffer(ranked: pd.DataFrame, max_items: int) -> pd.DataFrame:
