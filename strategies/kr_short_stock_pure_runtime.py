@@ -12,7 +12,9 @@ from strategies import kr_short_stock as base
 
 MIN_TRADE_VALUE_KRW = 5_000_000_000
 RELAXED_MIN_TRADE_VALUE_KRW = 500_000_000
-HISTORY_PATH = Path(__file__).resolve().parents[1] / 'reports' / 'recommendation_history.json'
+REPORT_DIR = Path(__file__).resolve().parents[1] / 'reports'
+HISTORY_PATH = REPORT_DIR / 'recommendation_history.json'
+LATEST_PATH = REPORT_DIR / 'latest.json'
 
 _ORIGINAL_SCAN = base.scan_kr_short_stocks
 _ORIGINAL_RULES_LOADER = base.load_kr_short_rules
@@ -29,7 +31,7 @@ def scan_kr_short_stocks() -> pd.DataFrame:
     base._score = _runtime_score
     original_bull_market_mode = settings.bull_market_mode
     try:
-        object.__setattr__(settings, 'bull_market_mode', False)  # [FIX-1] base threshold에서 bull_market_mode 이중 가산 제거
+        object.__setattr__(settings, 'bull_market_mode', False)
         scanned = _ORIGINAL_SCAN()
     finally:
         object.__setattr__(settings, 'bull_market_mode', original_bull_market_mode)
@@ -178,20 +180,37 @@ def _select_diverse_recent_aware(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _recent_recommendation_counts() -> dict[str, int]:
+    counts: dict[str, int] = {}
+    _add_counts_from_latest(counts)
+    _add_counts_from_history(counts)
+    return counts
+
+
+def _add_counts_from_latest(counts: dict[str, int]) -> None:
+    if not LATEST_PATH.exists():
+        return
+    try:
+        data = json.loads(LATEST_PATH.read_text(encoding='utf-8'))
+        for row in data.get('kr_short_stocks') or []:
+            code = str(row.get('code') or '').zfill(6)
+            if code and code != '000000':
+                counts[code] = counts.get(code, 0) + 2
+    except Exception as exc:
+        print(f'[runtime_filter] latest history read failed: {exc}')
+
+
+def _add_counts_from_history(counts: dict[str, int]) -> None:
     if not HISTORY_PATH.exists():
-        return {}
+        return
     try:
         data = json.loads(HISTORY_PATH.read_text(encoding='utf-8'))
         rows = data.get('items') or []
-        counts: dict[str, int] = {}
         for row in rows[:80]:
             code = str(row.get('code') or '').zfill(6)
             if code and code != '000000':
                 counts[code] = counts.get(code, 0) + 1
-        return counts
     except Exception as exc:
         print(f'[runtime_filter] recent history read failed: {exc}')
-        return {}
 
 
 def _relaxed_fallback(out: pd.DataFrame, trade_value: pd.Series, setup: pd.Series, risk: pd.Series, original_max_risk: float) -> pd.DataFrame:
