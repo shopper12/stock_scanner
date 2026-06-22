@@ -9,7 +9,7 @@ from data.market_data import _attach_names_and_sectors, _filter_common_stocks, _
 
 
 def get_kr_stock_universe_fast() -> pd.DataFrame:
-    """Return the full liquid KRX common-stock universe without sector scoring.
+    """Return the full liquid KRX common-stock universe with lightweight sector scoring.
 
     This function intentionally does not select by sector. It returns all common
     KOSPI/KOSDAQ/KONEX rows that pass the basic price/trade-value gate, unless
@@ -19,7 +19,7 @@ def get_kr_stock_universe_fast() -> pd.DataFrame:
     still produce candidates instead of an empty latest report.
     """
     if settings.use_mock_data:
-        return _ensure_fast_columns(_ensure_sector(mock_data.kr_stock_universe())).reset_index(drop=True)
+        return _ensure_fast_columns(_apply_sector_scores(_ensure_sector(mock_data.kr_stock_universe()))).reset_index(drop=True)
     try:
         market_df, trade_date = _latest_kr_market_ohlcv()
         market_df = _attach_names_and_sectors(market_df)
@@ -33,9 +33,10 @@ def get_kr_stock_universe_fast() -> pd.DataFrame:
 
         market_df['trade_date'] = trade_date
         market_df['fast_rank_score'] = _fast_rank_score(market_df)
+        market_df = _apply_sector_scores(market_df)
         market_df = market_df.sort_values(
-            ['fast_rank_score', 'change_pct_today', 'trade_value_today'],
-            ascending=[False, False, False],
+            ['fast_rank_score', 'sector_strength_score', 'change_pct_today', 'trade_value_today'],
+            ascending=[False, False, False, False],
         )
         top_n = _fast_universe_top_n()
         if top_n is not None:
@@ -75,24 +76,57 @@ def _static_realtime_universe(error_message: str) -> pd.DataFrame:
             'volume_today': volume_today,
             'trade_value_today': trade_value_today,
             'change_pct_today': change_pct_today,
-            'sector_rank': 99,
-            'sector_strength_score': 0.0,
-            'market_rotation_score': _fallback_rotation_score(change_pct_today, trade_value_today),
         })
     out = pd.DataFrame(rows)
     if out.empty:
         return _ensure_fast_columns(base).reset_index(drop=True)
     out['fast_rank_score'] = _fast_rank_score(out)
-    out = out.sort_values(['fast_rank_score', 'trade_value_today', 'change_pct_today'], ascending=[False, False, False])
+    out = _apply_sector_scores(out)
+    out = out.sort_values(['fast_rank_score', 'sector_strength_score', 'trade_value_today', 'change_pct_today'], ascending=[False, False, False, False])
     return _ensure_fast_columns(out).reset_index(drop=True)
 
 
-def _fallback_rotation_score(change_pct_today: float, trade_value_today: float) -> float:
-    score = 0.0
-    score += max(min(change_pct_today, 8.0), -5.0) * 4.0
-    if trade_value_today > 0:
-        score += min(trade_value_today / max(settings.min_kr_trade_value_krw, 1.0) * 20.0, 40.0)
-    return max(0.0, min(100.0, score))
+def _apply_sector_scores(df: pd.DataFrame) -> pd.DataFrame:
+    out = _ensure_sector(df.copy())
+    if out.empty:
+        return out
+    trade_value = pd.to_numeric(out.get('trade_value_today'), errors='coerce').fillna(0.0)
+    change = pd.to_numeric(out.get('change_pct_today'), errors='coerce').fillna(0.0)
+    fast_score = pd.to_numeric(out.get('fast_rank_score'), errors='coerce').fillna(0.0)
+    out['_tv'] = trade_value
+    out['_change'] = change
+    out['_fast'] = fast_score
+    sector = out.groupby('sector').agg(
+        trade_value_sum=('_tv', 'sum'),
+        avg_change=('_change', 'mean'),
+        positive_rate=('_change', lambda s: float((s > 0).mean()) if len(s) else 0.0),
+        avg_fast=('_fast', 'mean'),
+        count=('code', 'count'),
+    ).reset_index()
+    if sector.empty:
+        out['sector_rank'] = 99
+        out['sector_strength_score'] = 0.0
+        out['market_rotation_score'] = _fallback_rotation_score(change, trade_value)
+        return out.drop(columns=['_tv', '_change', '_fast'], errors='ignore')
+    tv_rank = pd.to_numeric(sector['trade_value_sum'], errors='coerce').fillna(0.0).rank(pct=True)
+    ch_rank = pd.to_numeric(sector['avg_change'], errors='coerce').fillna(0.0).clip(lower=0).rank(pct=True)
+    fast_rank = pd.to_numeric(sector['avg_fast'], errors='coerce').fillna(0.0).rank(pct=True)
+    pos = pd.to_numeric(sector['positive_rate'], errors='coerce').fillna(0.0)
+    sector['sector_strength_score'] = (tv_rank * 35.0 + ch_rank * 35.0 + fast_rank * 20.0 + pos * 10.0).clip(0, 100)
+    sector['sector_rank'] = sector['sector_strength_score'].rank(method='dense', ascending=False).astype(int)
+    out = out.merge(sector[['sector', 'sector_rank', 'sector_strength_score']], on='sector', how='left')
+    out['sector_rank'] = pd.to_numeric(out['sector_rank'], errors='coerce').fillna(99).astype(int)
+    out['sector_strength_score'] = pd.to_numeric(out['sector_strength_score'], errors='coerce').fillna(0.0)
+    out['market_rotation_score'] = _fallback_rotation_score(change, trade_value)
+    return out.drop(columns=['_tv', '_change', '_fast'], errors='ignore')
+
+
+def _fallback_rotation_score(change_pct_today, trade_value_today):
+    change = pd.to_numeric(change_pct_today, errors='coerce').fillna(0.0) if hasattr(change_pct_today, '__len__') and not isinstance(change_pct_today, (str, bytes)) else float(change_pct_today or 0.0)
+    trade_value = pd.to_numeric(trade_value_today, errors='coerce').fillna(0.0) if hasattr(trade_value_today, '__len__') and not isinstance(trade_value_today, (str, bytes)) else float(trade_value_today or 0.0)
+    score = change.clip(-5.0, 8.0) * 4.0 if hasattr(change, 'clip') else max(min(change, 8.0), -5.0) * 4.0
+    tv_score = (trade_value / max(settings.min_kr_trade_value_krw, 1.0) * 20.0).clip(0.0, 40.0) if hasattr(trade_value, 'clip') else min(trade_value / max(settings.min_kr_trade_value_krw, 1.0) * 20.0, 40.0)
+    return (score + tv_score).clip(0.0, 100.0) if hasattr(score, 'clip') else max(0.0, min(100.0, score + tv_score))
 
 
 def _fast_universe_top_n() -> int | None:
@@ -133,8 +167,8 @@ def _ensure_fast_columns(df: pd.DataFrame) -> pd.DataFrame:
     for col, value in defaults.items():
         if col not in out.columns:
             out[col] = value
-    out['sector_rank'] = 99
-    out['sector_strength_score'] = 0.0
+    out['sector_rank'] = pd.to_numeric(out['sector_rank'], errors='coerce').fillna(99).astype(int)
+    out['sector_strength_score'] = pd.to_numeric(out['sector_strength_score'], errors='coerce').fillna(0.0)
     out['market_rotation_score'] = pd.to_numeric(out['market_rotation_score'], errors='coerce').fillna(0.0)
     return out[[
         'code', 'name', 'sector', 'market', 'trade_date', 'close_today', 'volume_today',
