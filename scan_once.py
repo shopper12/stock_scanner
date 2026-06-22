@@ -12,7 +12,7 @@ from database.db import save_payload
 from strategies.fx_conversion import analyze_fx_conversion
 from strategies.global_signal_watch import scan_global_signal_watch
 from strategies.kr_retirement_etf import scan_kr_retirement_etfs
-from strategies.kr_short_stock_pure_runtime import scan_kr_short_stocks
+from strategies.kr_short_stock_guarded import scan_kr_short_stocks
 from strategies.us_long_etf import scan_us_long_etfs
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -32,11 +32,12 @@ def run_full_scan(notify: bool = False, write_report: bool = True, notify_only_i
     global_signal_watch = scan_global_signal_watch(kr_short_rows=kr_short_rows)
     perplexity_verification = _verify_with_perplexity(kr_short_rows, created_at)
     payload = {
-        'schema_version': 2,
+        'schema_version': 3,
         'created_at_kst': created_at,
         'mode': 'mock' if settings.use_mock_data else 'live',
         'data_quality': _data_quality(kr_short_rows, global_signal_watch),
         'fx': fx,
+        'global_signal': global_signal_watch,
         'global_signal_watch': global_signal_watch,
         'us_long_etfs': us.to_dict('records'),
         'kr_retirement_etfs': retirement.to_dict('records'),
