@@ -43,7 +43,13 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="false"
+            android:label="스캐너" />
+
+        <activity
+            android:name=".HomeActivity"
+            android:exported="true"
+            android:label="Stock Scanner">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
