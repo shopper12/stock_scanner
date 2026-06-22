@@ -59,6 +59,7 @@ def _naver_item_summary(code: str) -> Quote:
     url = f'https://api.finance.naver.com/service/itemSummary.nhn?itemcode={code}'
     data = _get_json(url)
     price = _to_float(data.get('now'))
+    volume = _to_optional_float(data.get('quant'))
     return Quote(
         code=code,
         price=price,
@@ -66,8 +67,8 @@ def _naver_item_summary(code: str) -> Quote:
         timestamp_kst=_now_kst(),
         change=_to_optional_float(data.get('diff')),
         change_pct=_to_optional_float(data.get('rate')),
-        volume=_to_optional_float(data.get('quant')),
-        trade_value=_naver_amount_to_krw(data.get('amount')),  # [FIX-LIQUIDITY] itemSummary amount is million-KRW scale.
+        volume=volume,
+        trade_value=_naver_amount_to_krw(data.get('amount'), price=price, volume=volume),
     )
 
 
@@ -75,6 +76,8 @@ def _naver_mobile_basic(code: str) -> Quote:
     url = f'https://m.stock.naver.com/api/stock/{code}/basic'
     data = _get_json(url)
     price = _to_float(data.get('closePrice'))
+    volume = _to_optional_float(data.get('accumulatedTradingVolume'))
+    raw_trade_value = _to_optional_float(data.get('accumulatedTradingValue'))
     return Quote(
         code=code,
         price=price,
@@ -82,8 +85,8 @@ def _naver_mobile_basic(code: str) -> Quote:
         timestamp_kst=_now_kst(),
         change=_to_optional_float(data.get('compareToPreviousClosePrice')),
         change_pct=_to_optional_float(data.get('fluctuationsRatio')),
-        volume=_to_optional_float(data.get('accumulatedTradingVolume')),
-        trade_value=_to_optional_float(data.get('accumulatedTradingValue')),
+        volume=volume,
+        trade_value=_normalise_trade_value(raw_trade_value, price=price, volume=volume),
     )
 
 
@@ -132,11 +135,27 @@ def _to_optional_float(value: Any) -> float | None:
         return None
 
 
-def _naver_amount_to_krw(value: Any) -> float | None:
+def _naver_amount_to_krw(value: Any, price: float | None = None, volume: float | None = None) -> float | None:
     amount = _to_optional_float(value)
-    if amount is None:
+    return _normalise_trade_value(amount, price=price, volume=volume)
+
+
+def _normalise_trade_value(raw_value: float | None, price: float | None = None, volume: float | None = None) -> float | None:
+    if raw_value is None or raw_value <= 0:
         return None
-    return amount * 1_000_000.0
+    expected = None
+    if price and volume and price > 0 and volume > 0:
+        expected = float(price) * float(volume)
+    candidates = [raw_value, raw_value * 1_000.0, raw_value * 1_000_000.0]
+    if expected and expected > 0:
+        return min(candidates, key=lambda x: abs(x - expected) / max(expected, 1.0))
+    if raw_value > 50_000_000_000_000:
+        return None
+    if raw_value > 50_000_000_000:
+        return raw_value
+    if raw_value > 50_000_000:
+        return raw_value * 1_000.0
+    return raw_value * 1_000_000.0
 
 
 def _now_kst() -> str:
