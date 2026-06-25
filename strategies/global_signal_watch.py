@@ -18,30 +18,76 @@ class Instrument:
 
 
 US_AND_ETF_UNIVERSE: tuple[Instrument, ...] = (
+    # Broad regime / sector ETFs
     Instrument('SPY', 'S&P 500 ETF', 'US', 'Equity ETF'),
     Instrument('QQQ', 'Nasdaq 100 ETF', 'US', 'Equity ETF'),
+    Instrument('IWM', 'Russell 2000 ETF', 'US', 'Equity ETF'),
     Instrument('SMH', 'Semiconductor ETF', 'US', 'Sector ETF'),
     Instrument('SOXX', 'Semiconductor ETF', 'US', 'Sector ETF'),
     Instrument('XLK', 'Technology ETF', 'US', 'Sector ETF'),
+    Instrument('XBI', 'SPDR S&P Biotech ETF', 'US', 'Sector ETF'),
+    Instrument('IBB', 'iShares Biotechnology ETF', 'US', 'Sector ETF'),
+    Instrument('XLI', 'Industrial ETF', 'US', 'Sector ETF'),
+    Instrument('XLU', 'Utilities ETF', 'US', 'Sector ETF'),
+    Instrument('XLE', 'Energy ETF', 'US', 'Sector ETF'),
+    Instrument('XLF', 'Financial ETF', 'US', 'Sector ETF'),
+    Instrument('ITA', 'US Aerospace & Defense ETF', 'US', 'Sector ETF'),
+    Instrument('PPA', 'Aerospace & Defense ETF', 'US', 'Sector ETF'),
+    Instrument('URA', 'Global Uranium ETF', 'US', 'Sector ETF'),
+    Instrument('NLR', 'Nuclear Energy ETF', 'US', 'Sector ETF'),
+
+    # AI / memory / semiconductors / optical data-center infrastructure
+    Instrument('NVDA', 'NVIDIA', 'US', 'US Stock'),
+    Instrument('AVGO', 'Broadcom', 'US', 'US Stock'),
+    Instrument('MU', 'Micron Technology', 'US', 'US Stock'),
+    Instrument('AMD', 'Advanced Micro Devices', 'US', 'US Stock'),
     Instrument('TSM', 'Taiwan Semiconductor ADR', 'US', 'US Stock'),
     Instrument('AMAT', 'Applied Materials', 'US', 'US Stock'),
     Instrument('LRCX', 'Lam Research', 'US', 'US Stock'),
     Instrument('KLAC', 'KLA Corp.', 'US', 'US Stock'),
     Instrument('TER', 'Teradyne', 'US', 'US Stock'),
     Instrument('MRVL', 'Marvell Technology', 'US', 'US Stock'),
-    Instrument('AVGO', 'Broadcom', 'US', 'US Stock'),
-    Instrument('MU', 'Micron Technology', 'US', 'US Stock'),
     Instrument('ALAB', 'Astera Labs', 'US', 'US Stock'),
     Instrument('VRT', 'Vertiv', 'US', 'US Stock'),
     Instrument('SMCI', 'Super Micro Computer', 'US', 'US Stock'),
     Instrument('APH', 'Amphenol', 'US', 'US Stock'),
-    Instrument('NVDA', 'NVIDIA', 'US', 'US Stock'),
-    Instrument('AMD', 'Advanced Micro Devices', 'US', 'US Stock'),
+    Instrument('GLW', 'Corning', 'US', 'US Stock'),
     Instrument('PLTR', 'Palantir', 'US', 'US Stock'),
     Instrument('GOOGL', 'Alphabet', 'US', 'US Stock'),
     Instrument('MSFT', 'Microsoft', 'US', 'US Stock'),
     Instrument('META', 'Meta Platforms', 'US', 'US Stock'),
     Instrument('AMZN', 'Amazon', 'US', 'US Stock'),
+
+    # Power / grid / nuclear / uranium
+    Instrument('CEG', 'Constellation Energy', 'US', 'US Stock'),
+    Instrument('VST', 'Vistra', 'US', 'US Stock'),
+    Instrument('ETN', 'Eaton', 'US', 'US Stock'),
+    Instrument('PWR', 'Quanta Services', 'US', 'US Stock'),
+    Instrument('CCJ', 'Cameco', 'US', 'US Stock'),
+    Instrument('LEU', 'Centrus Energy', 'US', 'US Stock'),
+    Instrument('UUUU', 'Energy Fuels', 'US', 'US Stock'),
+    Instrument('BWXT', 'BWX Technologies', 'US', 'US Stock'),
+    Instrument('OKLO', 'Oklo', 'US', 'US Stock'),
+
+    # Defense / security
+    Instrument('NOC', 'Northrop Grumman', 'US', 'US Stock'),
+    Instrument('RTX', 'RTX', 'US', 'US Stock'),
+    Instrument('LHX', 'L3Harris Technologies', 'US', 'US Stock'),
+    Instrument('LDOS', 'Leidos', 'US', 'US Stock'),
+
+    # Healthcare / biotech leaders and high-beta platforms
+    Instrument('LLY', 'Eli Lilly', 'US', 'US Stock'),
+    Instrument('VRTX', 'Vertex Pharmaceuticals', 'US', 'US Stock'),
+    Instrument('TWST', 'Twist Bioscience', 'US', 'US Stock'),
+    Instrument('HALO', 'Halozyme Therapeutics', 'US', 'US Stock'),
+    Instrument('SRPT', 'Sarepta Therapeutics', 'US', 'US Stock'),
+
+    # Korea ADR/proxy support where available
+    Instrument('000660.KS', 'SK하이닉스', 'KR', 'KR Stock'),
+    Instrument('207940.KS', '삼성바이오로직스', 'KR', 'KR Stock'),
+    Instrument('009420.KS', '한올바이오파마', 'KR', 'KR Stock'),
+    Instrument('397030.KQ', '에이프릴바이오', 'KR', 'KR Stock'),
+    Instrument('141080.KQ', '리가켐바이오', 'KR', 'KR Stock'),
 )
 
 COMMODITY_UNIVERSE: tuple[Instrument, ...] = (
@@ -62,19 +108,58 @@ STRONG_KR_SETUPS = {
 }
 
 HIGH_CONVICTION_RULESET = {
+    'event_first_gate': '섹터를 고정하지 않고 전세계 뉴스·공시·정책·실적·수주·M&A·규제 이벤트를 먼저 후보화',
     'regime_gate': 'MA50/MA200 상회, 유동성 충분, 광의 리스크 crash 아님',
     'trend_momentum_gate': '6개월/12개월 상대강도 스캔 유니버스 상위 10%',
     'breakout_gate': '20일 또는 55일 고점 돌파 + 20일 평균 거래량 1.5배 이상',
     'risk_gate': 'ATR 기반 손절폭 허용 + 기대 보상위험비 2:1 이상',
-    'confirmation_gate': '가격·거래량 데이터와 뉴스/브리핑 확인을 앱 카드에 같이 표시',
+    'confirmation_gate': '현재가·진입·손절·목표·트리거·뉴스/이벤트 연결을 앱 카드에 같이 표시',
+}
+
+EVENT_CATALYSTS: dict[str, tuple[int, str]] = {
+    'XBI': (82, '바이오 M&A·FDA/임상 이벤트·금리 하락 민감 섹터 리프라이싱'),
+    'IBB': (78, '대형 바이오·신약 승인·M&A 이벤트 연결'),
+    'TWST': (80, '합성생물학·AI 신약개발·바이오 인프라 성장 이벤트'),
+    'LLY': (77, '비만치료제·대사질환 파이프라인·대형 제약 실적 이벤트'),
+    'VRTX': (75, '희귀질환·유전자/세포 치료제 파이프라인 이벤트'),
+    'SRPT': (76, '유전자치료 규제·임상/FDA 이벤트 고베타 후보'),
+    '000660.KS': (92, 'AI 메모리/HBM 수요·글로벌 메모리 실적·ADR/해외자금 이벤트'),
+    '207940.KS': (75, 'CDMO 수주·바이오 대형주 방어/성장 이벤트'),
+    '009420.KS': (88, 'FcRn 임상 데이터·글로벌 파트너 이벤트'),
+    '397030.KQ': (86, 'SAFA 플랫폼·기술이전·임상 데이터 이벤트'),
+    '141080.KQ': (84, 'ADC 플랫폼·기술수출·글로벌 항암제 이벤트'),
+    'GLW': (88, 'AI 데이터센터 광통신 병목·대형 고객 공급계약 이벤트'),
+    'APH': (82, 'AI 서버 커넥터·전력/광통신 부품 수요 이벤트'),
+    'VRT': (82, 'AI 데이터센터 전력·냉각 인프라 CAPEX 이벤트'),
+    'CEG': (84, 'AI 전력수요·원전 PPA·전력 가격 리프라이싱 이벤트'),
+    'VST': (83, '전력 가격·데이터센터 수요·발전 포트폴리오 리프라이싱'),
+    'ETN': (80, '전력망·데이터센터 전기장비 CAPEX 이벤트'),
+    'PWR': (78, '전력망 투자·송전 인프라 수주 이벤트'),
+    'CCJ': (86, '원전 재가동·우라늄 공급부족·장기공급계약 이벤트'),
+    'LEU': (84, '핵연료·HALEU·미국 원전 공급망 정책 이벤트'),
+    'UUUU': (78, '우라늄·희토류·미국 전략광물 정책 이벤트'),
+    'URA': (82, '우라늄 가격·원전 정책·AI 전력수요 이벤트'),
+    'NLR': (78, '원전 정책·전력부족·AI 데이터센터 전력 이벤트'),
+    'NOC': (78, '방산예산·우주/미사일 방어·지정학 이벤트'),
+    'RTX': (75, '방산 수주·항공엔진·지정학 이벤트'),
+    'LHX': (76, '방산 전자전·통신·국방예산 이벤트'),
+    'LDOS': (74, '국방 IT·사이버보안·정부계약 이벤트'),
+    'MU': (88, 'AI 메모리 실적·HBM 공급부족·가이던스 이벤트'),
+    'AVGO': (86, 'AI ASIC·네트워크·대형 고객 CAPEX 이벤트'),
+    'NVDA': (85, 'AI GPU·데이터센터 CAPEX·실적 가이던스 이벤트'),
+    'ALAB': (82, 'AI 서버 인터커넥트·PCIe/CXL 병목 이벤트'),
 }
 
 
 def scan_global_signal_watch(kr_short_rows: list[dict] | None = None) -> list[dict]:
-    """Scan U.S. stocks/ETFs, KR candidates, and commodity ETFs for app alerts.
+    """Scan U.S./KR stocks, ETFs and commodity ETFs for app alerts.
 
-    The function returns no rows unless the candidate passes the high-conviction
-    gates requested in the recurring alert prompt.
+    The scanner is intentionally event-first: it does not start from a fixed
+    sector. It widens the universe across AI infrastructure, memory, power,
+    nuclear, uranium, defense, biotech, commodity ETFs and Korean event stocks;
+    then it applies the same five high-conviction gates used in the ChatGPT
+    automation. Returned rows are directly consumable by /api/recommendations
+    and the Android app.
     """
     records: list[dict] = []
     metrics: list[dict] = []
@@ -95,7 +180,12 @@ def scan_global_signal_watch(kr_short_rows: list[dict] | None = None) -> list[di
     records.extend(_kr_rows_as_global_alerts(kr_short_rows or [], regime))
     return sorted(
         records,
-        key=lambda x: (float(x.get('confidence', 0)), float(x.get('score', 0)), float(x.get('relative_strength_pctile', 0))),
+        key=lambda x: (
+            float(x.get('confidence', 0)),
+            float(x.get('event_score', 0)),
+            float(x.get('score', 0)),
+            float(x.get('relative_strength_pctile', 0)),
+        ),
         reverse=True,
     )[:8]
 
@@ -156,6 +246,7 @@ def _scan_instrument(instrument: Instrument, regime: dict) -> dict | None:
     ret252 = _return(hist['close'], 252)
     rsi14 = _rsi14(hist['close'])
     gap_ma20 = price / ma20 - 1.0 if ma20 > 0 else 0.0
+    event_score, event_catalyst = _event_profile(instrument)
 
     trend_ok = price > ma50 and price > ma200 and ma50 >= ma200 * 0.98
     tsmom_aligned = ret63 > 0 and ret126 > 0 and ret252 > 0
@@ -176,21 +267,25 @@ def _scan_instrument(instrument: Instrument, regime: dict) -> dict | None:
     rs_raw = ret126 * 0.50 + ret252 * 0.35 + ret63 * 0.15
 
     score = 0.0
-    score += 16.0 if regime.get('broad_risk_ok') else -25.0
-    score += 16.0 if trend_ok else -12.0
-    score += 16.0 if tsmom_aligned else -10.0
-    score += 14.0 if breakout55 else 10.0 if breakout20 else 8.0 if commodity_trend_confirm else -8.0
+    score += 14.0 if regime.get('broad_risk_ok') else -25.0
+    score += 14.0 if trend_ok else -12.0
+    score += 14.0 if tsmom_aligned else -10.0
+    score += 12.0 if breakout55 else 9.0 if breakout20 else 8.0 if commodity_trend_confirm else -8.0
     score += 12.0 if volume_confirm else -10.0
-    score += 10.0 if liquidity_ok else -10.0
+    score += 9.0 if liquidity_ok else -10.0
     score += 8.0 if exhaustion_guard else -16.0
     score += 8.0 if risk_ok else -12.0
     score += min(max(rs_raw * 30.0, -8.0), 13.0)
+    score += min(max((event_score - 55.0) / 4.0, 0.0), 10.0)
 
     return {
         'ticker': instrument.ticker,
+        'code': _display_code(instrument.ticker),
         'name': instrument.name,
         'market': instrument.market,
         'asset_class': instrument.asset_class,
+        'event_score': event_score,
+        'event_catalyst': event_catalyst,
         'current_price': round(price, 2),
         'ma20': round(ma20, 2),
         'ma50': round(ma50, 2),
@@ -222,6 +317,7 @@ def _scan_instrument(instrument: Instrument, regime: dict) -> dict | None:
         'target1': round(target1, 2),
         'target2': round(target2, 2),
         'timestamp_kst': datetime.now(ZoneInfo(settings.timezone)).strftime('%Y-%m-%d %H:%M:%S %Z'),
+        'price_basis': 'latest_yfinance_daily_close',
     }
 
 
@@ -247,32 +343,41 @@ def _as_alert_record(item: dict, regime: dict, ranked_snapshot: list[dict]) -> d
     entry_zone = f"{item.get('entry_low')}~{item.get('entry_high')}"
     trigger_condition = (
         f"{breakout}, 거래량 {item.get('volume_ratio_20d')}배, "
-        f"6M/12M RS 상위 {float(item.get('relative_strength_pctile', 0)) * 100:.0f}%, MA50·MA200 상회"
+        f"6M/12M RS 상위 {float(item.get('relative_strength_pctile', 0)) * 100:.0f}%, "
+        f"MA50·MA200 상회, 이벤트점수 {item.get('event_score')}"
     )
     reason = (
-        f"{trigger_condition}. ATR 손절 {item.get('risk_pct')}%, R/R {item.get('rr_ratio')}:1. "
-        f"{regime.get('reason')}. 뉴스/이벤트 확인은 앱 브리핑 카드의 보조 확인이 필요합니다."
+        f"{trigger_condition}. 현재가 {item.get('current_price')}, 진입 {entry_zone}, "
+        f"손절 {item.get('stop_loss')}, 목표 {item.get('target1')}→{item.get('target2')}. "
+        f"이벤트: {item.get('event_catalyst')}. ATR 손절 {item.get('risk_pct')}%, "
+        f"R/R {item.get('rr_ratio')}:1. {regime.get('reason')}."
     )
     return {
         'ticker': item['ticker'],
-        'code': item['ticker'],
+        'code': item.get('code') or _display_code(item['ticker']),
         'name': item['name'],
         'asset_name': item['name'],
         'market': item['market'],
         'asset_class': item['asset_class'],
         'direction': 'LONG',
-        'strategy_type': 'high_conviction_5_gate_breakout',
+        'strategy_type': 'event_first_high_conviction_5_gate',
         'score': item['score'],
         'confidence': _confidence(item),
+        'event_score': item.get('event_score'),
+        'event_catalyst': item.get('event_catalyst'),
         'relative_strength_pctile': round(float(item.get('relative_strength_pctile', 0)), 4),
         'relative_strength_rank': item.get('relative_strength_rank'),
         'current_price': item['current_price'],
         'basis_price': item['current_price'],
+        'basis_price_currency': _currency(item),
+        'price_basis': item.get('price_basis'),
+        'basis_timestamp_kst': item['timestamp_kst'],
         'entry': item['entry'],
         'entry_zone': entry_zone,
         'entry_low': item.get('entry_low'),
         'entry_high': item.get('entry_high'),
         'stop_loss': item['stop_loss'],
+        'stop': item['stop_loss'],
         'target1': item['target1'],
         'target2': item['target2'],
         'risk_pct': item['risk_pct'],
@@ -288,23 +393,24 @@ def _as_alert_record(item: dict, regime: dict, ranked_snapshot: list[dict]) -> d
         'reason': reason,
         'rationale': reason,
         'why_better_than_candidates': _why_better_than_candidates(item, ranked_snapshot),
-        'invalidation': '종가 기준 손절가 이탈, 돌파선 재이탈, 거래량 급감, MA20 이탈, 또는 이벤트 갭 리스크 발생',
-        'failure_condition': '종가 기준 손절가 이탈, 돌파선 재이탈, 거래량 급감, MA20 이탈, 또는 이벤트 갭 리스크 발생',
-        'confirmation_sources': ['Yahoo Finance OHLCV via yfinance', '앱 브리핑/뉴스 확인 필요'],
+        'invalidation': f"종가 기준 {item.get('stop_loss')} 이탈, 돌파선 재이탈, 거래량 급감, MA20 이탈, 또는 이벤트 모멘텀 훼손",
+        'failure_condition': f"종가 기준 {item.get('stop_loss')} 이탈, 돌파선 재이탈, 거래량 급감, MA20 이탈, 또는 이벤트 모멘텀 훼손",
+        'confirmation_sources': ['Yahoo Finance OHLCV via yfinance', '이벤트/뉴스 촉매 매핑 + 앱 브리핑 확인'],
         'ruleset': HIGH_CONVICTION_RULESET,
-        'source_strategy': 'high-conviction app scanner: regime + RS top-decile + breakout + ATR risk gates',
+        'source_strategy': 'event-first high-conviction app scanner: event catalyst + regime + RS top-decile + breakout + ATR risk gates',
         'source_note': '앱 자동 고확신 조건검색',
         'timestamp_kst': item['timestamp_kst'],
     }
 
 
 def _confidence(item: dict) -> float:
-    base = 6.8
+    base = 6.7
     base += min(max((float(item.get('relative_strength_pctile', 0)) - 0.90) * 6.0, 0.0), 0.6)
     base += 0.3 if bool(item.get('breakout55')) else 0.0
     base += 0.3 if float(item.get('volume_ratio_20d') or 0) >= 2.0 else 0.0
     base += 0.2 if 45 <= float(item.get('rsi14') or 50) <= 70 else -0.2
-    return round(max(6.0, min(base, 8.6)), 1)
+    base += min(max((float(item.get('event_score') or 0) - 75.0) / 35.0, 0.0), 0.5)
+    return round(max(6.0, min(base, 9.1)), 1)
 
 
 def _ranked_snapshot(items: list[dict]) -> list[dict]:
@@ -312,23 +418,24 @@ def _ranked_snapshot(items: list[dict]) -> list[dict]:
         {
             'ticker': item.get('ticker'),
             'score': item.get('score'),
+            'event_score': item.get('event_score'),
             'rs': round(float(item.get('relative_strength_pctile', 0)) * 100, 0),
             'ret_1m_pct': item.get('ret_1m_pct'),
             'rsi14': item.get('rsi14'),
             'volume_ratio_20d': item.get('volume_ratio_20d'),
         }
-        for item in sorted(items, key=lambda x: float(x.get('score') or 0), reverse=True)[:8]
+        for item in sorted(items, key=lambda x: (float(x.get('score') or 0), float(x.get('event_score') or 0)), reverse=True)[:10]
     ]
 
 
 def _why_better_than_candidates(item: dict, ranked_snapshot: list[dict]) -> str:
     alternatives = [row for row in ranked_snapshot if row.get('ticker') != item.get('ticker')][:4]
     if not alternatives:
-        return '동일 유니버스에서 최고 점수 후보이며 모든 5단계 게이트를 통과했습니다.'
+        return '동일 유니버스에서 최고 점수 후보이며 이벤트·가격·거래량·위험 게이트를 모두 통과했습니다.'
     names = ', '.join(str(row.get('ticker')) for row in alternatives)
     return (
         f"{item.get('ticker')}는 {names} 대비 5단계 게이트를 모두 통과했습니다. "
-        f"RS 상위 {float(item.get('relative_strength_pctile', 0)) * 100:.0f}%, "
+        f"이벤트점수 {item.get('event_score')}, RS 상위 {float(item.get('relative_strength_pctile', 0)) * 100:.0f}%, "
         f"거래량 {item.get('volume_ratio_20d')}배, ATR 손절 {item.get('risk_pct')}%, "
         f"R/R {item.get('rr_ratio')}:1 조합이 더 안정적입니다."
     )
@@ -352,25 +459,35 @@ def _kr_rows_as_global_alerts(rows: list[dict], regime: dict) -> list[dict]:
             continue
         if risk_pct and not (3.0 <= risk_pct <= 11.5):
             continue
-        trigger = f"KR 강신호 {setup}, score {score:.1f}, volume {volume_ratio or '-'}x"
-        reason = f"{trigger}. 기존 KR 스캐너 통과 + 글로벌 앱 고확신 필터 통과: {row.get('reason', '')}"
+        code = str(row.get('code', '')).zfill(6)
+        event_score, event_catalyst = _event_profile(Instrument(f'{code}.KS', row.get('name', ''), 'KR', 'KR Stock'))
+        trigger = f"KR 강신호 {setup}, score {score:.1f}, volume {volume_ratio or '-'}x, 이벤트점수 {event_score}"
+        reason = (
+            f"{trigger}. 현재가 {row.get('current_price')}, 진입 {row.get('entry')}, "
+            f"손절 {row.get('stop_loss')}, 목표 {row.get('target1')}→{row.get('target2')}. "
+            f"이벤트: {event_catalyst}. 기존 KR 스캐너 통과 + 글로벌 앱 고확신 필터 통과: {row.get('reason', '')}"
+        )
         out.append({
-            'ticker': str(row.get('code', '')).zfill(6),
-            'code': str(row.get('code', '')).zfill(6),
+            'ticker': code,
+            'code': code,
             'name': row.get('name', ''),
             'asset_name': row.get('name', ''),
             'market': 'KR',
             'asset_class': 'KR Stock',
             'direction': 'LONG',
-            'strategy_type': f'kr_high_conviction_{setup}',
+            'strategy_type': f'kr_event_first_high_conviction_{setup}',
             'score': round(score, 1),
-            'confidence': round(min(8.4, 6.8 + max(score - 80.0, 0.0) / 50.0), 1),
+            'confidence': round(min(8.8, 6.8 + max(score - 80.0, 0.0) / 50.0 + max(event_score - 75, 0) / 100.0), 1),
+            'event_score': event_score,
+            'event_catalyst': event_catalyst,
             'relative_strength_pctile': 1.0,
             'current_price': row.get('current_price'),
             'basis_price': row.get('current_price'),
+            'basis_price_currency': 'KRW',
             'entry': row.get('entry'),
             'entry_zone': row.get('entry_zone') or row.get('entry'),
             'stop_loss': row.get('stop_loss'),
+            'stop': row.get('stop_loss'),
             'target1': row.get('target1'),
             'target2': row.get('target2'),
             'risk_pct': row.get('risk_pct'),
@@ -381,12 +498,12 @@ def _kr_rows_as_global_alerts(rows: list[dict], regime: dict) -> list[dict]:
             'trigger_condition': trigger,
             'reason': reason,
             'rationale': reason,
-            'why_better_than_candidates': 'KR 단기 후보 중 score·거래량·위험폭 필터를 동시에 통과한 후보입니다.',
+            'why_better_than_candidates': 'KR 단기 후보 중 이벤트·score·거래량·위험폭 필터를 동시에 통과한 후보입니다.',
             'invalidation': row.get('failure_condition') or 'MA20/손절가 이탈',
             'failure_condition': row.get('failure_condition') or 'MA20/손절가 이탈',
-            'confirmation_sources': ['KR scanner live quote', 'KR scanner strategy factors'],
+            'confirmation_sources': ['KR scanner live quote', 'KR scanner strategy factors', '이벤트/뉴스 촉매 매핑'],
             'ruleset': HIGH_CONVICTION_RULESET,
-            'source_strategy': 'existing KR runtime scanner + high-conviction app bridge',
+            'source_strategy': 'existing KR runtime scanner + event-first high-conviction app bridge',
             'source_note': '앱 자동 고확신 조건검색',
             'timestamp_kst': row.get('price_timestamp') or datetime.now(ZoneInfo(settings.timezone)).strftime('%Y-%m-%d %H:%M:%S %Z'),
         })
@@ -416,7 +533,41 @@ def _load_history(ticker: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _event_profile(instrument: Instrument) -> tuple[int, str]:
+    ticker = instrument.ticker.upper()
+    if ticker in EVENT_CATALYSTS:
+        return EVENT_CATALYSTS[ticker]
+    root = ticker.split('.')[0]
+    if root in EVENT_CATALYSTS:
+        return EVENT_CATALYSTS[root]
+    text = f'{instrument.name} {instrument.asset_class}'.lower()
+    if any(key in text for key in ('biotech', 'pharmaceutical', 'bio', '제약', '바이오')):
+        return 72, '바이오 임상·기술수출·FDA/규제 이벤트 후보'
+    if any(key in text for key in ('semiconductor', 'memory', 'hbm', '반도체')):
+        return 76, 'AI 반도체·HBM·실적/가이던스 이벤트 후보'
+    if any(key in text for key in ('uranium', 'nuclear', '원전', '우라늄')):
+        return 76, '원전·우라늄·전력부족 정책 이벤트 후보'
+    if any(key in text for key in ('defense', 'aerospace', '방산')):
+        return 72, '국방예산·지정학·수주 이벤트 후보'
+    if any(key in text for key in ('utilities', 'power', 'electric', '전력')):
+        return 72, '데이터센터 전력·전력망 투자 이벤트 후보'
+    return 60, '가격·거래량 기반 이벤트 후보. 별도 뉴스 확인 필요'
+
+
+def _display_code(ticker: str) -> str:
+    value = str(ticker or '').strip().upper()
+    if value.endswith('.KS') or value.endswith('.KQ'):
+        return value.split('.')[0].zfill(6)
+    return value
+
+
+def _currency(item: dict) -> str:
+    return 'KRW' if str(item.get('market')) == 'KR' or str(item.get('ticker', '')).endswith(('.KS', '.KQ')) else 'USD'
+
+
 def _min_dollar_volume(instrument: Instrument) -> float:
+    if instrument.market == 'KR':
+        return 5_000_000.0
     if instrument.asset_class == 'US Stock':
         return 50_000_000.0
     if instrument.market == 'Commodity':
