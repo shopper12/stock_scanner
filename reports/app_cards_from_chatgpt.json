@@ -1,6 +1,32 @@
 {
   "schema_version": 1,
-  "updated_at_kst": null,
+  "updated_at_kst": "2026-06-26 08:32:37 KST",
   "source": "chatgpt_automation_github_handoff",
-  "items": []
+  "items": [
+    {
+      "asset_name": "Micron Technology",
+      "ticker": "MU",
+      "code": "MU",
+      "market": "US",
+      "direction": "LONG",
+      "event_catalyst": "AI 데이터센터 투자 확대, HBM/메모리 공급 부족, 220억달러 고객 공급확약, 16건 장기 공급계약, 예상 상회 실적 및 가이던스",
+      "trigger_condition": "실적 발표 후 사상 최고가 돌파, 2026년 주가 4배 수준 상승, 장중 1255.00달러 기록, 종가 1213.56달러로 신고가권 마감. Reuters/MarketWatch/Investopedia가 가격 반응과 메모리 공급 부족 촉매를 교차 확인",
+      "current_price": 1213.56,
+      "basis_price": 1213.56,
+      "basis_price_currency": "USD",
+      "basis_timestamp_kst": "2026-06-26 05:16 KST (2026-06-25 US close, MarketWatch/Dow Jones Market Data)",
+      "entry": 1213.56,
+      "entry_zone": "1190.00~1230.00",
+      "stop_loss": 1115.00,
+      "stop": 1115.00,
+      "target1": 1425.00,
+      "target2": 1600.00,
+      "invalidation": "종가 기준 1115.00달러 하향 이탈, 20일 돌파선 재이탈, HBM/메모리 공급 부족 완화, 장기 공급계약 모멘텀 훼손, AI 데이터센터 CAPEX 둔화",
+      "confidence": 8.2,
+      "reason": "전세계 이벤트 스캔에서 메모리/HBM 공급 부족과 AI 데이터센터 수요가 가장 직접적인 가격 반응으로 연결됐다. Micron은 미국 상장 직접 수혜주이며 실적, 가이던스, 장기 공급계약, 신고가 돌파가 동시에 확인됐다.",
+      "why_better_than_candidates": "원전/전력, 방산, 바이오 M&A, 원자재 후보보다 이벤트-가격 연결성이 선명하다. Reuters는 Micron의 220억달러 고객 공급확약과 글로벌 칩 랠리를 보도했고, MarketWatch는 15.7% 상승 및 1213.56달러 종가와 1255.00달러 장중 최고가를 확인했다. Investopedia는 주가가 2026년에 4배 수준이고 S&P 500 내 최상위 성과주 중 하나라고 보도했다.",
+      "risk": "AI 관련 밸류에이션 부담, 고금리/인플레이션으로 인한 반도체 멀티플 압축, 메모리 가격 정상화, 대형 고객의 구매 확약 축소, 급등 이후 단기 차익실현",
+      "source_note": "Reuters, MarketWatch/Dow Jones Market Data, Investopedia 교차 확인"
+    }
+  ]
 }
