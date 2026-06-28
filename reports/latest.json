@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "created_at_kst": "2026-06-27 19:34:13 KST",
+  "created_at_kst": "2026-06-28 19:41:58 KST",
   "mode": "live",
   "data_quality": {
     "kr_short_total": 2,
@@ -17,7 +17,7 @@
     "ma120": 1482.33,
     "gap_vs_60d_pct": 2.45,
     "dxy": 101.36,
-    "us10y": 4.45,
+    "us10y": 4.37,
     "vix": 18.41,
     "action": "최소환전 / 선환전 금지",
     "suggested_conversion_ratio_pct": 15.0,
@@ -413,7 +413,7 @@
       "market_rotation_score": 20.0,
       "current_price": 339500,
       "price_basis": "realtime_quote",
-      "price_timestamp": "2026-06-27 19:33:58 KST",
+      "price_timestamp": "2026-06-28 19:41:43 KST",
       "history_last_date": "2026-06-26",
       "quote_source": "naver_item_summary",
       "quote_ok": true,
@@ -453,7 +453,7 @@
       "market_rotation_score": 46.7,
       "current_price": 485000,
       "price_basis": "realtime_quote",
-      "price_timestamp": "2026-06-27 19:33:55 KST",
+      "price_timestamp": "2026-06-28 19:41:39 KST",
       "history_last_date": "2026-06-26",
       "quote_source": "naver_item_summary",
       "quote_ok": true,
@@ -480,8 +480,8 @@
       "reason": "광통신/AI인프라(섹터 6위/39, 종목당일 1.7%, RSI 59)",
       "failure_condition": "점수 하락 또는 stop_loss 이탈",
       "data_source": "pykrx_daily_plus_quote",
-      "repeat_count_30d": 0,
-      "diversity_score": 103.37700000000001,
+      "repeat_count_30d": 2,
+      "diversity_score": 87.37700000000001,
       "sector_rank": 2,
       "sector_strength_score": 65.0
     }
@@ -491,7 +491,7 @@
     "status": "skipped",
     "reason": "disabled",
     "message": "Set PERPLEXITY_VERIFY_ENABLED=true to enable external verification.",
-    "created_at_kst": "2026-06-27 19:34:38 KST"
+    "created_at_kst": "2026-06-28 19:42:10 KST"
   },
   "dca_backtest": {
     "ticker": "VOO",
