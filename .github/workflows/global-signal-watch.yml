@@ -1,9 +1,6 @@
-name: Global Signal Watch
+name: Global Signal Watch (manual only)
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'
-      timezone: 'Asia/Seoul'
   workflow_dispatch:
 
 jobs:
