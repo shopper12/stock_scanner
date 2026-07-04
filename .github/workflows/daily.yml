@@ -1,9 +1,7 @@
-name: Daily scanner smoke run
+name: Daily scanner smoke run (manual only)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '30 22 * * *'  # 07:30 KST
 
 jobs:
   smoke:
