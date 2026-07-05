@@ -1,61 +1,13 @@
-name: High Confidence Signal Watch
+name: High Confidence Signal Watch (moved)
 
 on:
   workflow_dispatch:
-  schedule:
-    # GitHub Actions schedules are UTC.
-    # KST coverage: KR open/pre-close, US regular session windows, and crypto/futures checks.
-    - cron: '5 0 * * 1-5'    # KST 09:05 KR open
-    - cron: '35 0 * * 1-5'   # KST 09:35 KR opening range
-    - cron: '30 3 * * 1-5'   # KST 12:30 midday
-    - cron: '0 6 * * 1-5'    # KST 15:00 KR pre-close
-    - cron: '35 13 * * 1-5'  # KST 22:35 US open area during standard time approximation
-    - cron: '5 14 * * 1-5'   # KST 23:05 US opening range
-    - cron: '0 16 * * 1-5'   # KST 01:00 US mid-session
-    - cron: '30 18 * * 1-5'  # KST 03:30 US late-session
-    - cron: '0 2 * * 0,6'    # Weekend crypto/futures check
-    - cron: '0 14 * * 0,6'   # Weekend crypto/futures check
+
+permissions:
+  contents: read
 
 jobs:
-  signal-watch:
+  moved:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    env:
-      USE_MOCK_DATA: 'false'
-      TIMEZONE: Asia/Seoul
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
-      ACCOUNT_EQUITY_KRW: '10000000'
-      RISK_PER_TRADE_PCT: '0.7'
-      KR_UNIVERSE_TOP_N: '260'
-      KR_UNIVERSE_TOP_N_BULL: '320'
-      ALLOW_DATA_FALLBACK: 'false'
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run high-confidence signal watcher
-        run: python tools/watch_high_confidence_signals.py --notify
-
-      - name: Upload signal reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: high-confidence-signal-reports
-          path: |
-            reports/high_confidence_signals_latest.json
-            reports/high_confidence_signal_history.json
-          if-no-files-found: ignore
+      - run: echo "Moved to shopper12/gpt_coin_android .github/workflows/unified-strategy-monitor.yml"
