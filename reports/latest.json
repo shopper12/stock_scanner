@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "created_at_kst": "2026-07-04 19:34:19 KST",
+  "created_at_kst": "2026-07-05 19:39:41 KST",
   "mode": "live",
   "data_quality": {
     "kr_short_total": 2,
@@ -17,7 +17,7 @@
     "ma120": 1485.62,
     "gap_vs_60d_pct": 1.84,
     "dxy": 100.86,
-    "us10y": 4.37,
+    "us10y": 4.49,
     "vix": 16.15,
     "action": "최소환전 / 선환전 금지",
     "suggested_conversion_ratio_pct": 15.0,
@@ -413,7 +413,7 @@
       "market_rotation_score": 28.2,
       "current_price": 229500,
       "price_basis": "realtime_quote",
-      "price_timestamp": "2026-07-04 19:34:13 KST",
+      "price_timestamp": "2026-07-05 19:39:36 KST",
       "history_last_date": "2026-07-03",
       "quote_source": "naver_item_summary",
       "quote_ok": true,
@@ -453,7 +453,7 @@
       "market_rotation_score": 27.3,
       "current_price": 3323000,
       "price_basis": "realtime_quote",
-      "price_timestamp": "2026-07-04 19:34:17 KST",
+      "price_timestamp": "2026-07-05 19:39:40 KST",
       "history_last_date": "2026-07-03",
       "quote_source": "naver_item_summary",
       "quote_ok": true,
@@ -491,7 +491,7 @@
     "status": "skipped",
     "reason": "disabled",
     "message": "Set PERPLEXITY_VERIFY_ENABLED=true to enable external verification.",
-    "created_at_kst": "2026-07-04 19:34:32 KST"
+    "created_at_kst": "2026-07-05 19:39:53 KST"
   },
   "dca_backtest": {
     "ticker": "VOO",
