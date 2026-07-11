@@ -6,12 +6,14 @@ on:
       commit_report:
         description: 'Commit reports/latest.json after scan'
         required: false
-        default: 'true'
-  schedule:
-    - cron: '30 8 * * *'
+        default: 'false'
 
 permissions:
   contents: write
+
+concurrency:
+  group: stock-smoke-scan
+  cancel-in-progress: true
 
 jobs:
   smoke:
@@ -40,8 +42,7 @@ jobs:
           USE_MOCK_DATA: '0'
           ALLOW_DATA_FALLBACK: '0'
           TIMEZONE: Asia/Seoul
-        run: |
-          python tools/smoke_scan.py
+        run: python tools/smoke_scan.py
 
       - name: Upload scan reports
         uses: actions/upload-artifact@v4
@@ -52,9 +53,10 @@ jobs:
             reports/latest.json
             reports/quote_quality_latest.json
           if-no-files-found: ignore
+          retention-days: 7
 
       - name: Commit latest report
-        if: ${{ github.event_name == 'schedule' || github.event.inputs.commit_report == 'true' }}
+        if: ${{ github.event.inputs.commit_report == 'true' }}
         run: |
           if [ ! -f reports/latest.json ]; then
             echo "reports/latest.json not found"
