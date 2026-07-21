@@ -136,11 +136,11 @@ def _drop_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
         filtered = _relaxed_fallback(out, trade_value, setup, risk, original_max_risk)
     if filtered.empty:
         return filtered.reset_index(drop=True)
-    filtered['sector_rank'] = pd.to_numeric(filtered.get('sector_rank'), errors='coerce').fillna(99).astype(int)
-    filtered['sector_strength_score'] = pd.to_numeric(filtered.get('sector_strength_score'), errors='coerce').fillna(0.0)
-    filtered['market_rotation_score'] = pd.to_numeric(filtered.get('market_rotation_score'), errors='coerce').fillna(0.0)
+    filtered['sector_rank'] = 99
+    filtered['sector_strength_score'] = 0.0
+    filtered['market_rotation_score'] = 0.0
     filtered = _repair_position_size(filtered)
-    return _select_diverse_recent_aware(filtered)
+    return _select_recent_aware(filtered)
 
 
 def _print_runtime_filter_stats(out: pd.DataFrame, liquid: pd.Series, valid_value_ratio: pd.Series, low_volume_watch: pd.Series, low_value_and_volume_watch: pd.Series, weak_backtested_setup: pd.Series, excess_risk: pd.Series, watch_without_pullback: pd.Series, final_mask: pd.Series, abnormal_trade_value: pd.Series, severe_5d_downtrend: pd.Series, risk_excess_penalty: pd.Series) -> None:
@@ -158,7 +158,7 @@ def _print_runtime_filter_stats(out: pd.DataFrame, liquid: pd.Series, valid_valu
         'watch_without_pullback': int(watch_without_pullback.sum()),
         'final_pass': int(final_mask.sum()),
     }
-    top = out[['code', 'name', 'sector', 'sector_rank', 'sector_strength_score', 'strategy_type', 'score', 'trade_value_krw', 'trade_value_ratio_20d', 'risk_pct', 'momentum_5d_pct', 'drawdown_52w_pct']].head(10).to_dict('records') if not out.empty else []
+    top = out[['code', 'name', 'sector', 'strategy_type', 'score', 'trade_value_krw', 'trade_value_ratio_20d', 'risk_pct', 'momentum_5d_pct', 'drawdown_52w_pct']].head(10).to_dict('records') if not out.empty else []
     print(f'[runtime_filter] stats={stats}')
     print(f'[runtime_filter] top_before_filter={top}')
 
@@ -177,37 +177,30 @@ def _repair_position_size(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _select_diverse_recent_aware(df: pd.DataFrame) -> pd.DataFrame:
+def _select_recent_aware(df: pd.DataFrame) -> pd.DataFrame:
     top_n = _top_n()
     ranked = df.copy()
     recent_counts = _recent_recommendation_counts()
     ranked['repeat_count_30d'] = ranked['code'].astype(str).str.zfill(6).map(recent_counts).fillna(0).astype(int)
-    ranked['diversity_score'] = (
+    ranked['selection_score'] = (
         pd.to_numeric(ranked.get('score'), errors='coerce').fillna(0.0)
-        + (pd.to_numeric(ranked.get('sector_strength_score'), errors='coerce').fillna(0.0).clip(0, 100) * 0.05)
         + (pd.to_numeric(ranked.get('trade_value_ratio_20d'), errors='coerce').fillna(0.0).clip(0, 3) * 1.5)
         + (pd.to_numeric(ranked.get('volume_ratio_20d'), errors='coerce').fillna(0.0).clip(0, 3) * 1.0)
         + (pd.to_numeric(ranked.get('change_pct_today'), errors='coerce').fillna(0.0).clip(-5, 8) * 0.4)
         - ranked['repeat_count_30d'] * _repeat_penalty()
     )
-    ranked = ranked.sort_values(['diversity_score', 'score', 'sector_strength_score', 'trade_value_krw'], ascending=[False, False, False, False])
+    ranked = ranked.sort_values(['selection_score', 'score', 'trade_value_krw'], ascending=[False, False, False])
     selected = []
     selected_codes: set[str] = set()
-    sector_counts: dict[str, int] = {}
     cooldown = _repeat_cooldown_count()
-    max_per_sector = _max_per_sector()
     for _, row in ranked.iterrows():
         code = str(row.get('code', '')).zfill(6)
-        sector = str(row.get('sector') or '기타')
         if code in selected_codes:
             continue
         if int(row.get('repeat_count_30d') or 0) >= cooldown and len(ranked) > top_n:
             continue
-        if sector_counts.get(sector, 0) >= max_per_sector:
-            continue
         selected.append(row)
         selected_codes.add(code)
-        sector_counts[sector] = sector_counts.get(sector, 0) + 1
         if len(selected) >= top_n:
             break
     if len(selected) < top_n:
@@ -220,7 +213,7 @@ def _select_diverse_recent_aware(df: pd.DataFrame) -> pd.DataFrame:
             if len(selected) >= top_n:
                 break
     result = pd.DataFrame(selected).reset_index(drop=True)
-    print(f'[runtime_filter] selected_diverse={result[["code", "name", "sector", "sector_rank", "sector_strength_score", "score", "repeat_count_30d", "diversity_score"]].to_dict("records") if not result.empty else []}')
+    print(f'[runtime_filter] selected_recent_aware={result[["code", "name", "sector", "score", "repeat_count_30d", "selection_score"]].to_dict("records") if not result.empty else []}')
     return result.head(top_n)
 
 
@@ -299,13 +292,6 @@ def _top_n() -> int:
         return max(1, int(float(os.getenv('KR_TOP_N_RESULTS', '7'))))
     except ValueError:
         return 7
-
-
-def _max_per_sector() -> int:
-    try:
-        return max(1, int(float(os.getenv('KR_MAX_PER_SECTOR', '2'))))
-    except ValueError:
-        return 2
 
 
 def _repeat_cooldown_count() -> int:
