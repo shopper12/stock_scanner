@@ -20,9 +20,9 @@ def scan_kr_short_stocks() -> pd.DataFrame:
     out = _drop_bad_market_data(out)
     out = _penalize_risk_overflow(out)
     out = _fix_zero_position_size(out)
-    out = _restore_sector_scores(out)
-    out = out.sort_values(['score', 'sector_strength_score', 'trade_value_krw'], ascending=[False, False, False]).reset_index(drop=True)
-    print(f'[guarded_scan] before={before} after={len(out)}')
+    out = _neutralize_sector_scores(out)
+    out = out.sort_values(['score', 'trade_value_krw'], ascending=[False, False]).reset_index(drop=True)
+    print(f'[guarded_scan] before={before} after={len(out)} sector_score_used=false')
     return out
 
 
@@ -66,32 +66,14 @@ def _fix_zero_position_size(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _restore_sector_scores(df: pd.DataFrame) -> pd.DataFrame:
+def _neutralize_sector_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep the descriptive sector label, but do not use heuristic sector scores.
+
+    Sector classification currently comes from a small code/keyword mapping rather
+    than an authoritative KRX/WICS industry feed. A score derived from those labels
+    must not affect candidate ranking or recommendation eligibility.
+    """
     out = df.copy()
-    if out.empty:
-        return out
-    trade_value = pd.to_numeric(out.get('trade_value_krw'), errors='coerce').fillna(0.0)
-    change = pd.to_numeric(out.get('change_pct_today'), errors='coerce').fillna(0.0)
-    score = pd.to_numeric(out.get('score'), errors='coerce').fillna(0.0)
-    out['_tv'] = trade_value
-    out['_change'] = change
-    out['_score'] = score
-    sector = out.groupby('sector').agg(
-        trade_value_sum=('_tv', 'sum'),
-        avg_change=('_change', 'mean'),
-        avg_score=('_score', 'mean'),
-        count=('code', 'count'),
-    ).reset_index()
-    if sector.empty:
-        out['sector_rank'] = 99
-        out['sector_strength_score'] = 0.0
-        return out.drop(columns=['_tv', '_change', '_score'], errors='ignore')
-    tv_rank = pd.to_numeric(sector['trade_value_sum'], errors='coerce').fillna(0.0).rank(pct=True)
-    ch_rank = pd.to_numeric(sector['avg_change'], errors='coerce').fillna(0.0).clip(lower=0).rank(pct=True)
-    score_rank = pd.to_numeric(sector['avg_score'], errors='coerce').fillna(0.0).rank(pct=True)
-    sector['sector_strength_score'] = (tv_rank * 35.0 + ch_rank * 30.0 + score_rank * 35.0).clip(0, 100)
-    sector['sector_rank'] = sector['sector_strength_score'].rank(method='dense', ascending=False).astype(int)
-    out = out.drop(columns=['sector_rank', 'sector_strength_score'], errors='ignore').merge(sector[['sector', 'sector_rank', 'sector_strength_score']], on='sector', how='left')
-    out['sector_rank'] = pd.to_numeric(out['sector_rank'], errors='coerce').fillna(99).astype(int)
-    out['sector_strength_score'] = pd.to_numeric(out['sector_strength_score'], errors='coerce').fillna(0.0).round(1)
-    return out.drop(columns=['_tv', '_change', '_score'], errors='ignore')
+    out['sector_rank'] = 99
+    out['sector_strength_score'] = 0.0
+    return out
