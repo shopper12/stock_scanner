@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at_kst": "2026-08-15 21:06 KST",
+  "updated_at_kst": "2026-08-15 23:59 KST",
   "source": "chatgpt_unified_market_automation",
   "mode": "scheduled_briefing",
-  "regime": "주말 휴장 중 호르무즈 선박 피격 주장과 오만 해상 유출로 에너지 공급위험이 강화됐다. BTC는 6.3만달러 부근에서 정체하고 미국·한국 시장은 휴장이라 모든 전략을 다음 세션 확인 조건부로 유지한다.",
+  "regime": "토요일 00:00 검증 슬롯에서 미국장은 휴장이고 BTC는 6.3만달러 아래 박스권이다. 호르무즈 공급위험은 유지되지만 선물 재개 전이므로 ETON·AAOI·CVE 조건부 롱과 AMAT 조건부 숏을 유지한다.",
   "items": [
     {
-      "id": "20260815-2106KST-ETON-LONG",
+      "id": "20260815-2359KST-ETON-LONG",
       "asset_name": "Eton Pharmaceuticals",
       "ticker": "ETON",
       "code": "ETON",
@@ -33,12 +33,12 @@
       "risk": "실적 갭 되돌림, 희귀질환 제품 집중, 높은 밸류에이션과 낮은 유동성",
       "invalidation": "48.90달러 이탈 또는 상향된 2026 매출 1.45억달러 가이던스 철회",
       "price_timestamp_kst": "2026-08-15T07:05:01+09:00",
-      "generated_at_kst": "2026-08-15T21:06:17+09:00",
-      "briefing_slot": "2100",
+      "generated_at_kst": "2026-08-15T23:59:40+09:00",
+      "briefing_slot": "0000",
       "strategy_type": "CHATGPT_SCHEDULED_BRIEFING"
     },
     {
-      "id": "20260815-2106KST-AAOI-LONG",
+      "id": "20260815-2359KST-AAOI-LONG",
       "asset_name": "Applied Optoelectronics",
       "ticker": "AAOI",
       "code": "AAOI",
@@ -65,12 +65,12 @@
       "risk": "적자 기준 높은 밸류에이션, 광통신 설비 사이클, 급등 후 변동성 확대",
       "invalidation": "132달러 이탈 또는 Q3 매출 2.55억달러 하단 미달 전망",
       "price_timestamp_kst": "2026-08-15T07:16:59+09:00",
-      "generated_at_kst": "2026-08-15T21:06:17+09:00",
-      "briefing_slot": "2100",
+      "generated_at_kst": "2026-08-15T23:59:40+09:00",
+      "briefing_slot": "0000",
       "strategy_type": "CHATGPT_SCHEDULED_BRIEFING"
     },
     {
-      "id": "20260815-2106KST-CVE-LONG",
+      "id": "20260815-2359KST-CVE-LONG",
       "asset_name": "Cenovus Energy",
       "ticker": "CVE",
       "code": "CVE",
@@ -97,12 +97,12 @@
       "risk": "외교 전환, 원유 수요둔화·재고 증가, 주말 갭 과대 후 되돌림",
       "invalidation": "WTI 80달러 하회 또는 CVE 29.80달러 이탈",
       "price_timestamp_kst": "2026-08-15T06:27:26+09:00",
-      "generated_at_kst": "2026-08-15T21:06:17+09:00",
-      "briefing_slot": "2100",
+      "generated_at_kst": "2026-08-15T23:59:40+09:00",
+      "briefing_slot": "0000",
       "strategy_type": "CHATGPT_SCHEDULED_BRIEFING"
     },
     {
-      "id": "20260815-2106KST-AMAT-SHORT",
+      "id": "20260815-2359KST-AMAT-SHORT",
       "asset_name": "Applied Materials",
       "ticker": "AMAT",
       "code": "AMAT",
@@ -129,8 +129,8 @@
       "risk": "반도체 동반 랠리, 저가매수, 긍정적 주문·마진 재평가",
       "invalidation": "529달러 회복 또는 SOX 대비 상대강도 2거래일 연속 회복",
       "price_timestamp_kst": "2026-08-15T07:15:18+09:00",
-      "generated_at_kst": "2026-08-15T21:06:17+09:00",
-      "briefing_slot": "2100",
+      "generated_at_kst": "2026-08-15T23:59:40+09:00",
+      "briefing_slot": "0000",
       "strategy_type": "CHATGPT_SCHEDULED_BRIEFING"
     }
   ]
