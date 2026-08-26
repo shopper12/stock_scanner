@@ -8,7 +8,7 @@
         android:name=".StockScannerApplication"
         android:allowBackup="false"
         android:icon="@android:drawable/sym_def_app_icon"
-        android:label="Stock Scanner"
+        android:label="오늘 돈 보기"
         android:roundIcon="@android:drawable/sym_def_app_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.StockScanner">
@@ -25,7 +25,7 @@
         <activity
             android:name=".BotCardsActivity"
             android:exported="false"
-            android:label="봇 추천" />
+            android:label="오늘 추천" />
 
         <activity
             android:name=".ChartActivity"
@@ -44,12 +44,12 @@
         <activity
             android:name=".MainActivity"
             android:exported="false"
-            android:label="스캐너" />
+            android:label="상세 스캐너" />
 
         <activity
             android:name=".HomeActivity"
             android:exported="true"
-            android:label="Stock Scanner">
+            android:label="오늘 돈 보기">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
